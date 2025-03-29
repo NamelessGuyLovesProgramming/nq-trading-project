@@ -1,0 +1,79 @@
+# Bestehende Befehle
+Erstmaliger Testlauf:
+python main.py --symbol NQ=F --period 1y --interval 1d --visualize
+
+Modell trainieren:
+python main.py --symbol NQ=F --period 1mo --interval 1m --train  --visualize
+
+Backtest mit ML-Strategie:
+python main.py --symbol NQ=F --period 1y --interval 1d --backtest --visualize --strategy ml
+
+# Neue Strategien testen
+Mean-Reversion-Strategie:
+python main.py --symbol NQ=F --period 1mo --interval 1m --backtest --visualize --strategy mean_reversion --rsi-overbought 75 --rsi-oversold 25
+
+Volumen-basierte Strategie:
+python main.py --symbol NQ=F --period 1y --interval 1d --backtest --visualize --strategy volume --volume-threshold 1.8
+
+Kombinierte Strategie:
+python main.py --symbol NQ=F --period 1y --interval 1d --backtest --visualize --strategy combined
+
+Market-Regime-Strategie:
+python main.py --symbol NQ=F --period 1y --interval 1d --backtest --visualize --strategy regime
+
+Ensemble-Strategie:
+python main.py --symbol NQ=F --period 1y --interval 1d --backtest --visualize --strategy ensemble
+
+# Mit Risikomanagement
+Mean-Reversion mit Risikomanagement:
+python main.py --symbol NQ=F --period 1y --interval 1d --backtest --visualize --strategy mean_reversion --risk-management
+
+# Andere Märkte/Zeitfenster testen
+S&P 500 Futures mit Mean-Reversion:
+python main.py --symbol ES=F --period 1y --interval 1d --backtest --visualize --strategy mean_reversion
+
+Kurzfristiger Backtest mit Volumen-Strategie:
+python main.py --symbol NQ=F --period 3mo --interval 1h --backtest --visualize --strategy volume
+
+Verfügbare Perioden (--period)
+
+1d - 1 Tag
+5d - 5 Tage
+1mo - 1 Monat
+3mo - 3 Monate
+6mo - 6 Monate
+1y - 1 Jahr
+2y - 2 Jahre
+5y - 5 Jahre
+10y - 10 Jahre
+max - Maximaler verfügbarer Zeitraum
+
+Verfügbare Intervalle (--interval)
+
+1m - 1 Minute (verfügbar für Zeiträume bis zu 7 Tagen)
+2m - 2 Minuten (verfügbar für Zeiträume bis zu 60 Tagen)
+5m - 5 Minuten (verfügbar für Zeiträume bis zu 60 Tagen)
+15m - 15 Minuten (verfügbar für Zeiträume bis zu 60 Tagen)
+30m - 30 Minuten (verfügbar für Zeiträume bis zu 60 Tagen)
+60m - 60 Minuten (verfügbar für Zeiträume bis zu 730 Tagen)
+90m - 90 Minuten (verfügbar für Zeiträume bis zu 60 Tagen)
+1h - 1 Stunde (gleich wie 60m)
+1d - 1 Tag
+5d - 5 Tage
+1wk - 1 Woche
+1mo - 1 Monat
+3mo - 3 Monate
+
+
+befehl;
+das ist das Projekt. bitte baue ein, das der chart :
+
+mit mausreiger runter: die x achse wird nach rechts geqätscht.
+
+Mauszeiger hoch: die xachse wird entqätscht, also es geht wieder nach links.
+
+mit strg +mauszeiger hoch: wird der chart beidseitig, von der position des mauszeiger aus, weggeqätscht und man kriegt mehr sicht auf die candles ( candles werden weniger)
+
+mit  strg + mauszeiger runter: wird beidsietig in richtung maus geqätscht.
+
+Man kann ebenfalls direkt auf die x achse oder y achse drücken und mit maushalten die achsen dehnen.
