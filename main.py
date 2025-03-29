@@ -627,16 +627,35 @@ def main():
         f.write(f"Ausgeführte Aktionen: {', '.join(actions)}\n")
         f.write("-" * 50 + "\n")
 
+
+def run_web_ui():
+    """Startet die Streamlit Web-UI"""
+    import subprocess
+    import sys
+
+    subprocess.run([sys.executable, "-m", "streamlit", "run", "web/app.py"])
+
+
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        print(f"\nFEHLER: Ein unerwarteter Fehler ist aufgetreten: {e}")
-        print("\nStacktrace:")
-        import traceback
+    import argparse
 
-        traceback.print_exc()
+    # Erstelle den ursprünglichen Parser, falls wir die Web-UI starten möchten
+    web_parser = argparse.ArgumentParser(description='NQ Trading Tool mit Web-Interface')
+    web_parser.add_argument('--web', action='store_true', help='Start web interface')
 
-        print("\nBitte überprüfen Sie die Parameter und versuchen Sie es erneut.")
-        print("Verwenden Sie --verbose oder -v für mehr Informationen.")
-        print("Bei Datenproblemen versuchen Sie --repair-data, um CSV-Dateien zu reparieren.")
+    # Parse nur das --web Argument
+    web_args, remaining_args = web_parser.parse_known_args()
+
+    if web_args.web:
+        run_web_ui()
+    else:
+        # Führe die ursprüngliche main-Funktion aus
+        try:
+            # Wenn --web nicht angegeben, führe den normalen main() aus
+            main()
+        except Exception as e:
+            print(f"\nFEHLER: Ein unerwarteter Fehler ist aufgetreten: {e}")
+            print("\nStacktrace:")
+            import traceback
+
+            traceback.print_exc()
