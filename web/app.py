@@ -96,53 +96,66 @@ with st.sidebar:
 def load_data():
     st.header("Daten laden")
 
-    with st.spinner("Daten werden geladen..."):
-        try:
-            # Erstelle DataFetcher-Instanz
-            fetcher = DataFetcher(symbol=symbol)
+    # Füge einen Knopf hinzu, um den Ladevorgang zu starten
+    if st.button("Daten laden starten"):
+        with st.spinner("Daten werden geladen..."):
+            try:
+                # Erstelle DataFetcher-Instanz
+                fetcher = DataFetcher(symbol=symbol)
 
-            # Lade Daten basierend auf den Parametern
-            if combine_all_years:
-                data = fetcher.load_custom_file("nq-1m*.csv")
-                st.success("Alle nq-1m* Dateien wurden kombiniert und geladen.")
-            elif custom_file:
-                data = fetcher.fetch_data(period=period, interval=interval, force_download=True,
-                                          custom_file=custom_file)
-                st.success(f"Benutzerdefinierte Datei '{custom_file}' wurde geladen.")
-            elif period.startswith("nq-1m"):
-                data = fetcher.load_nq_minute_data(period)
-                st.success(f"NQ 1-Minuten-Daten für Periode: {period} wurden geladen.")
-            else:
-                data = fetcher.fetch_data(period=period, interval=interval, force_download=True)
-                st.success(f"Daten für {symbol} mit Periode {period} und Intervall {interval} wurden geladen.")
+                # Lade Daten basierend auf den Parametern
+                if combine_all_years:
+                    data = fetcher.load_custom_file("nq-1m*.csv")
+                    st.success("Alle nq-1m* Dateien wurden kombiniert und geladen.")
+                elif custom_file:
+                    data = fetcher.fetch_data(period=period, interval=interval, force_download=True,
+                                              custom_file=custom_file)
+                    st.success(f"Benutzerdefinierte Datei '{custom_file}' wurde geladen.")
+                elif period.startswith("nq-1m"):
+                    data = fetcher.load_nq_minute_data(period)
+                    st.success(f"NQ 1-Minuten-Daten für Periode: {period} wurden geladen.")
+                else:
+                    data = fetcher.fetch_data(period=period, interval=interval, force_download=True)
+                    st.success(f"Daten für {symbol} mit Periode {period} und Intervall {interval} wurden geladen.")
 
-            # Fehlerprüfung
-            if data is None or data.empty:
-                st.error("Keine Daten konnten geladen werden. Überprüfen Sie die Parameter.")
+                # Fehlerprüfung
+                if data is None or data.empty:
+                    st.error("Keine Daten konnten geladen werden. Überprüfen Sie die Parameter.")
+                    return None
+
+                # Zeige Datenübersicht
+                st.write(f"Datenzeitraum: {data.index[0]} bis {data.index[-1]}")
+                st.write(f"Anzahl der Datenpunkte: {len(data)}")
+
+                # Füge technische Indikatoren hinzu
+                processor = DataProcessor()
+                data_with_indicators = processor.add_technical_indicators(data)
+
+                # Zeige die ersten Zeilen
+                st.subheader("Datenübersicht (erste 5 Zeilen)")
+                st.dataframe(data_with_indicators.head())
+
+                # Speichere in Session-State
+                st.session_state.data = data_with_indicators
+
+                return data_with_indicators
+
+            except Exception as e:
+                st.error(f"Fehler beim Laden der Daten: {e}")
+                st.exception(e)
                 return None
+    else:
+        # Zeige einen Hinweis, wenn noch keine Daten geladen wurden
+        if st.session_state.data is None:
+            st.info("Klicke auf 'Daten laden starten', um den Ladevorgang zu beginnen.")
+        else:
+            # Wenn bereits Daten geladen wurden, zeige eine Zusammenfassung
+            st.success("Daten wurden bereits geladen.")
+            st.write(f"Datenzeitraum: {st.session_state.data.index[0]} bis {st.session_state.data.index[-1]}")
+            st.write(f"Anzahl der Datenpunkte: {len(st.session_state.data)}")
 
-            # Zeige Datenübersicht
-            st.write(f"Datenzeitraum: {data.index[0]} bis {data.index[-1]}")
-            st.write(f"Anzahl der Datenpunkte: {len(data)}")
-
-            # Füge technische Indikatoren hinzu
-            processor = DataProcessor()
-            data_with_indicators = processor.add_technical_indicators(data)
-
-            # Zeige die ersten Zeilen
-            st.subheader("Datenübersicht (erste 5 Zeilen)")
-            st.dataframe(data_with_indicators.head())
-
-            # Speichere in Session-State
-            st.session_state.data = data_with_indicators
-
-            return data_with_indicators
-
-        except Exception as e:
-            st.error(f"Fehler beim Laden der Daten: {e}")
-            st.exception(e)
-            return None
-
+            # Option zum Neuladen anbieten
+            st.write("Drücke den 'Daten laden starten' Button, um neue Daten mit den aktuellen Parametern zu laden.")
 
 # ML-Modell trainieren
 def train_model():
