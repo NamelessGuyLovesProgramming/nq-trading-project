@@ -1,16 +1,30 @@
-# Verzeichnisse ignorieren
-models/
-notebooks/
-output/
-data/
+# Windows-spezifische Dateien ignorieren
+Thumbs.db
+desktop.ini
 
-# Python-spezifische Dateien ignorieren
-__pycache__/
+# Temporäre Dateien
+*.tmp
+*.log
+
+# Build-Verzeichnisse und große Datenordner
+/output/
+/notebooks/
+/data/
+/models/
+
+# Konfigurationsdateien
+config.json
+.env
+
+# Andere übliche Verzeichnisse
+/node_modules/
+/__pycache__/
+
+# Python-spezifische Dateien
 *.py[cod]
 *$py.class
 *.so
 .Python
-venv/
 env/
 build/
 develop-eggs/
@@ -26,16 +40,3 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
-
-# IDE-spezifische Dateien ignorieren
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Jupyter Notebook-spezifische Dateien
-.ipynb_checkpoints
-
-# Lokale Konfigurationsdateien
-.env
-.DS_Store
