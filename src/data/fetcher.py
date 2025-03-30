@@ -138,9 +138,274 @@ class DataFetcher:
             # Erstelle leeren DataFrame als Fallback
             return pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'Volume'])
 
+    """
+    Kopieren Sie diese Methoden in Ihre DataFetcher-Klasse in src/data/fetcher.py.
+    Ersetzen Sie die bestehende load_custom_file-Methode durch diese Version.
+    """
+
+    def load_and_standardize_csv(self, file_path):
+        """
+        Lädt eine CSV-Datei und standardisiert das Format für die weitere Verarbeitung.
+        Unterstützt verschiedene Dateiformate:
+        1. Yahoo API Format mit einer Datetime-Spalte
+        2. Format mit getrennten Datums- und Zeitspalten
+        3. Bereits standardisiertes Format mit benannten Spalten
+
+        Args:
+            file_path (str): Pfad zur CSV-Datei
+
+        Returns:
+            pd.DataFrame: Standardisiertes DataFrame mit 'Date' als Index und OHLCV-Spalten
+        """
+        import pandas as pd
+        import os
+
+        print(f"Lade Datei: {file_path}")
+
+        # Versuche verschiedene Ladestrategien
+        try:
+            # 1. Versuche zuerst, die Datei zu inspizieren
+            with open(file_path, 'r', encoding='utf-8') as f:
+                header_lines = min(5, os.path.getsize(file_path) // 100)
+                if header_lines == 0:
+                    header_lines = 1
+                header = [next(f) for _ in range(header_lines)]
+
+            print(f"Datei-Header-Beispiel: {header[0].strip()}")
+
+            # 2. Prüfe auf getrennte Datums- und Zeitspalten (Format 2)
+            if ',' in header[0] and len(header[0].split(',')) >= 2:
+                first_cols = [h.strip() for h in header[0].split(',')[:2]]
+
+                # Wenn die ersten beiden Spalten wie Datum und Zeit aussehen
+                date_like = any(['date' in col.lower() or
+                                 '/' in col or
+                                 '-' in col or
+                                 col.isdigit() for col in first_cols])
+                time_like = any(['time' in col.lower() or
+                                 ':' in col for col in first_cols])
+
+                if date_like and time_like or (len(first_cols[0]) == 10 and len(first_cols[1]) == 8):
+                    print("Format mit getrennten Datums- und Zeitspalten erkannt")
+                    df = pd.read_csv(file_path)
+
+                    # Identifiziere Datums- und Zeitspalten
+                    date_col = None
+                    time_col = None
+
+                    # Suche nach Datumsspalte
+                    for col in df.columns:
+                        if 'date' in str(col).lower() or df[col].astype(str).str.contains('-').all() or df[col].astype(
+                                str).str.contains('/').all():
+                            date_col = col
+                            break
+
+                    # Wenn keine explizite Datumsspalte gefunden wurde, verwende die erste Spalte
+                    if date_col is None and len(df.columns) > 0:
+                        date_col = df.columns[0]
+
+                    # Suche nach Zeitspalte
+                    for col in df.columns:
+                        if 'time' in str(col).lower() or df[col].astype(str).str.contains(':').all():
+                            time_col = col
+                            break
+
+                    # Wenn keine explizite Zeitspalte gefunden wurde, verwende die zweite Spalte
+                    if time_col is None and len(df.columns) > 1:
+                        time_col = df.columns[1]
+
+                    print(f"Identifizierte Spalten - Datum: {date_col}, Zeit: {time_col}")
+
+                    if date_col and time_col:
+                        # Kombiniere Datums- und Zeitspalten zu Datetime
+                        df['Datetime'] = pd.to_datetime(df[date_col].astype(str) + ' ' + df[time_col].astype(str),
+                                                        errors='coerce')
+                        df.set_index('Datetime', inplace=True)
+                        df.index.name = 'Date'
+
+                        # Identifiziere und standardisiere OHLCV-Spalten
+                        remaining_cols = [c for c in df.columns if c != date_col and c != time_col]
+
+                        # Wenn genau 5 verbleibende Spalten vorhanden sind, nehme an, dass es OHLCV ist
+                        if len(remaining_cols) >= 5:
+                            # Prüfe, ob die Spalten bereits benannt sind
+                            ohlcv_names = {'open', 'high', 'low', 'close', 'volume'}
+                            existing_ohlcv = [c for c in df.columns if c.lower() in ohlcv_names]
+
+                            if len(existing_ohlcv) >= 4:  # Wenn die meisten OHLCV-Spalten bereits benannt sind
+                                print("OHLCV-Spaltennamen bereits vorhanden")
+                            else:
+                                # Benenne die verbleibenden numerischen Spalten als OHLCV
+                                numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+                                if len(numeric_cols) >= 5:
+                                    rename_dict = {
+                                        numeric_cols[0]: 'Open',
+                                        numeric_cols[1]: 'High',
+                                        numeric_cols[2]: 'Low',
+                                        numeric_cols[3]: 'Close',
+                                        numeric_cols[4]: 'Volume'
+                                    }
+                                    df.rename(columns=rename_dict, inplace=True)
+                                    print(f"Spalten umbenannt: {rename_dict}")
+
+                    return df
+
+            # 3. Versuche mit Standardoptionen (Format 1 oder 3)
+            try:
+                # Versuche mit 'Date' als Index
+                df = pd.read_csv(file_path, index_col='Date', parse_dates=True)
+                print("Erfolgreich mit 'Date' als Index geladen")
+
+                # Prüfe, ob OHLCV-Spalten fehlen
+                if not all(col in df.columns for col in ['Open', 'High', 'Low', 'Close', 'Volume']):
+                    # Versuche, Spalten zu identifizieren und umzubenennen
+                    numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+                    if len(numeric_cols) >= 4:  # Mindestens OHLC
+                        rename_dict = {}
+                        ohlcv = ['Open', 'High', 'Low', 'Close']
+                        for i, col in enumerate(numeric_cols[:4]):
+                            rename_dict[col] = ohlcv[i]
+
+                        if len(numeric_cols) >= 5:
+                            rename_dict[numeric_cols[4]] = 'Volume'
+
+                        df.rename(columns=rename_dict, inplace=True)
+                        print(f"Spalten umbenannt: {rename_dict}")
+
+                return df
+            except:
+                # Wenn kein 'Date' als Index, versuche mit Standardoptionen
+                df = pd.read_csv(file_path)
+
+                # Prüfe auf Datetime-Spalte
+                for col in df.columns:
+                    if 'date' in str(col).lower() or 'time' in str(col).lower() or 'datetime' in str(col).lower():
+                        try:
+                            df[col] = pd.to_datetime(df[col])
+                            df.set_index(col, inplace=True)
+                            df.index.name = 'Date'
+                            print(f"Erfolgreich mit '{col}' als Datetime-Index geladen")
+                            break
+                        except:
+                            continue
+
+                # Wenn kein erfolgreicher Index gesetzt wurde, versuche die erste Spalte
+                if not isinstance(df.index, pd.DatetimeIndex):
+                    try:
+                        df.set_index(df.columns[0], inplace=True)
+                        df.index = pd.to_datetime(df.index)
+                        df.index.name = 'Date'
+                        print("Erste Spalte als Datetime-Index verwendet")
+                    except:
+                        print("Konnte keinen Datetime-Index setzen")
+
+                # Prüfe, ob OHLCV-Spalten fehlen
+                expected_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+                if not all(col in df.columns for col in expected_cols):
+                    # Prüfe auf bekannte Spaltennamenvarianten
+                    col_variants = {
+                        'Open': ['open', 'o', 'opening', 'first'],
+                        'High': ['high', 'h', 'max', 'highest'],
+                        'Low': ['low', 'l', 'min', 'lowest'],
+                        'Close': ['close', 'c', 'last', 'closing'],
+                        'Volume': ['volume', 'vol', 'v']
+                    }
+
+                    rename_dict = {}
+                    for std_col, variants in col_variants.items():
+                        if std_col not in df.columns:
+                            for var in variants:
+                                matching_cols = [c for c in df.columns if var == c.lower()]
+                                if matching_cols:
+                                    rename_dict[matching_cols[0]] = std_col
+                                    break
+
+                    if rename_dict:
+                        df.rename(columns=rename_dict, inplace=True)
+                        print(f"Spalten umbenannt: {rename_dict}")
+
+                return df
+
+        except Exception as e:
+            print(f"Fehler beim Laden der Datei: {e}")
+            # Fallback mit verschiedenen skiprows-Werten probieren
+            for skiprows in range(0, 5):
+                try:
+                    df = pd.read_csv(file_path, skiprows=skiprows)
+                    print(f"Erfolgreich mit skiprows={skiprows} geladen")
+
+                    # Wenn erfolgreich, versuche die Datei zu standardisieren
+                    return self.standardize_dataframe(df)
+                except:
+                    continue
+
+            # Wenn alles fehlschlägt, leere DataFrame zurückgeben
+            print("Konnte Datei nicht laden, gebe leeres DataFrame zurück")
+            return pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'Volume'])
+
+    def standardize_dataframe(self, df):
+        """
+        Standardisiert ein DataFrame für die weitere Verarbeitung.
+
+        Args:
+            df (pd.DataFrame): Original DataFrame
+
+        Returns:
+            pd.DataFrame: Standardisiertes DataFrame mit 'Date' als Index und OHLCV-Spalten
+        """
+        import pandas as pd
+
+        # Kopie erstellen
+        df = df.copy()
+
+        # 1. Stelle sicher, dass wir einen Datetime-Index haben
+        if not isinstance(df.index, pd.DatetimeIndex):
+            # Suche nach Datetime-Spalten
+            datetime_cols = []
+            for col in df.columns:
+                if 'date' in str(col).lower() or 'time' in str(col).lower() or 'datetime' in str(col).lower():
+                    datetime_cols.append(col)
+
+            # Wenn Datetime-Spalten gefunden wurden, verwende die erste
+            if datetime_cols:
+                try:
+                    df[datetime_cols[0]] = pd.to_datetime(df[datetime_cols[0]])
+                    df.set_index(datetime_cols[0], inplace=True)
+                    df.index.name = 'Date'
+                except:
+                    print(f"Konnte {datetime_cols[0]} nicht als Datetime-Index verwenden")
+
+        # 2. Stelle sicher, dass OHLCV-Spalten vorhanden sind
+        expected_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+        missing_cols = [col for col in expected_cols if col not in df.columns]
+
+        if missing_cols:
+            print(f"Fehlende Spalten: {missing_cols}")
+
+            # Wenn es genau die richtige Anzahl numerischer Spalten gibt, benenne sie um
+            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+
+            if len(numeric_cols) >= len(missing_cols):
+                for i, col in enumerate(missing_cols):
+                    if i < len(numeric_cols):
+                        df[col] = df[numeric_cols[i]]
+                        print(f"Spalte {numeric_cols[i]} als {col} verwendet")
+
+        # 3. Füge fehlende Spalten mit NaN-Werten hinzu
+        for col in expected_cols:
+            if col not in df.columns:
+                df[col] = float('nan')
+                print(f"Spalte {col} mit NaN-Werten hinzugefügt")
+
+        return df
+
     def load_custom_file(self, file_pattern):
         """
         Lädt Daten aus einer benutzerdefinierten Datei oder einem Muster.
+        Unterstützt verschiedene Dateiformate, einschließlich:
+        - Yahoo API Format mit einer Datetime-Spalte
+        - Format mit getrennten Datums- und Zeitspalten
+        - Bereits standardisiertes Format mit benannten Spalten
 
         Args:
             file_pattern (str): Dateiname oder Glob-Muster für die zu ladenden Dateien
@@ -148,6 +413,10 @@ class DataFetcher:
         Returns:
             pandas.DataFrame: DataFrame mit den geladenen Daten
         """
+        import os
+        import pandas as pd
+        import glob
+
         file_path = os.path.join(self.data_dir, file_pattern)
 
         # Prüfe, ob die Datei existiert oder ob es ein Glob-Muster ist
@@ -167,31 +436,13 @@ class DataFetcher:
             for file in sorted(matching_files):
                 try:
                     print(f"Lade Datei: {file}")
-                    df = pd.read_csv(file)
+                    df = self.load_and_standardize_csv(file)
 
-                    # Überprüfe auf notwendige Spalten
-                    required_cols = ['Open', 'High', 'Low', 'Close', 'Volume', 'Date']
-                    missing_cols = [col for col in required_cols if col not in df.columns]
-
-                    if missing_cols:
-                        print(f"Warnung: Fehlende Spalten in {file}: {missing_cols}")
-                        # Versuche alternative Spaltennamen zu finden
-                        if 'Date' in missing_cols and 'Datetime' in df.columns:
-                            df.rename(columns={'Datetime': 'Date'}, inplace=True)
-                            missing_cols.remove('Date')
-
-                        # Falls immer noch Spalten fehlen, überspringe die Datei
-                        if missing_cols:
-                            print(f"Überspringe Datei {file} wegen fehlender Spalten")
-                            continue
-
-                    # Setze Datum als Index, falls noch nicht geschehen
-                    if 'Date' in df.columns and not pd.api.types.is_datetime64_any_dtype(df.index):
-                        df['Date'] = pd.to_datetime(df['Date'])
-                        df.set_index('Date', inplace=True)
-
-                    all_dfs.append(df)
-                    print(f"Datei {file} erfolgreich geladen, Shape: {df.shape}")
+                    if not df.empty:
+                        all_dfs.append(df)
+                        print(f"Datei {file} erfolgreich geladen, Shape: {df.shape}")
+                    else:
+                        print(f"Datei {file} konnte nicht geladen werden oder ist leer")
                 except Exception as e:
                     print(f"Fehler beim Laden der Datei {file}: {e}")
 
@@ -212,39 +463,8 @@ class DataFetcher:
             return combined_df
         else:
             # Nur eine Datei gefunden
-            file_path = matching_files[0]
-            print(f"Lade Datei: {file_path}")
-
-            try:
-                # Versuche verschiedene Methoden zum Laden der Datei
-                try:
-                    # Standardmethode
-                    df = pd.read_csv(file_path, index_col='Date', parse_dates=True)
-                except:
-                    try:
-                        # Alternative Methode ohne Index
-                        df = pd.read_csv(file_path)
-                        if 'Date' in df.columns:
-                            df['Date'] = pd.to_datetime(df['Date'])
-                            df.set_index('Date', inplace=True)
-                        elif 'Datetime' in df.columns:
-                            df['Datetime'] = pd.to_datetime(df['Datetime'])
-                            df.set_index('Datetime', inplace=True)
-                            df.index.name = 'Date'
-                    except:
-                        # Methode mit skiprows für Yahoo-Format
-                        df = pd.read_csv(file_path, skiprows=3)
-                        if 'Date' in df.columns:
-                            df['Date'] = pd.to_datetime(df['Date'])
-                            df.set_index('Date', inplace=True)
-
-                print(f"Datei erfolgreich geladen, Shape: {df.shape}")
-                return df
-            except Exception as e:
-                print(f"Fehler beim Laden der Datei {file_path}: {e}")
-                import traceback
-                traceback.print_exc()
-                return pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'Volume'])
+            return self.load_and_standardize_csv(matching_files[0])
+    # Diese Funktion in DataFetcher integrieren
 
     def load_nq_minute_data(self, period):
         """
