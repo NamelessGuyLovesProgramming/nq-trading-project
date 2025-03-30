@@ -320,13 +320,16 @@ class ChartVisualizer:
 
     # Änderungen für die Methode plot_candlestick_with_indicators in src/visualization/charts.py
 
-    def plot_candlestick_with_indicators(self, df, indicators=None, signals=None):
+    # Änderung für die plot_candlestick_with_indicators Methode in src/visualization/charts.py
+
+    def plot_candlestick_with_indicators(self, df, indicators=None, signals=None, skip_weekends=True):
         """
         Erstellt ein Candlestick-Chart mit Indikatoren und Signalen im TradingView-Stil.
 
         - Standardansicht: Alle verfügbaren Candles anzeigen
         - Preisanzeige und Y-Achse rechts
         - Bessere Proportionen der Kerzenkörper
+        - Option zum Überspringen von Wochenendtagen
         """
         # DataFrame vorbereiten
         df = self._prepare_dataframe(df)
@@ -453,7 +456,7 @@ class ChartVisualizer:
         # Optimiere die Anzeige basierend auf der Datenmenge
         end_date = df.index[-1]
 
-        # Bei sehr vielen Datenpunkten, zeige die letzten X Kerzen
+        # Bei sehr vielen Datenpunkten, zeige die letzten X Kerzen standardmäßig
         if len(df) > 200:
             # Zeige etwa die letzten 100-150 Kerzen standardmäßig
             start_date = df.index[max(0, len(df) - 150)]
@@ -507,6 +510,31 @@ class ChartVisualizer:
             ]
         )
 
+        # Konfiguriere X-Achse für das Überspringen von Tagen ohne Daten (Wochenenden)
+        if skip_weekends:
+            fig.update_xaxes(
+                type='category',  # Verwende kategorische Achse statt kontinuierlicher Zeitachse
+                rangeslider_visible=False,  # Rangeslider ausblenden
+                rangebreaks=[
+                    # Wochenenden überspringen
+                    dict(pattern='day of week', bounds=[5, 7])
+                ]
+            )
+        else:
+            # Standard X-Achse konfigurieren
+            fig.update_xaxes(
+                rangeslider_visible=False,  # Rangeslider ausblenden
+                automargin=True,
+                range=[start_date, end_date],  # Setze Standardzoom
+                showspikes=True,
+                spikemode='across',
+                spikesnap='cursor',
+                showline=True,
+                showgrid=True,
+                fixedrange=False,
+                constrain='domain'
+            )
+
         # Y-Achse konfigurieren mit festen Grenzen für bessere Proportionen der Candlesticks
         fig.update_yaxes(
             title_text='Preis',
@@ -536,20 +564,6 @@ class ChartVisualizer:
             constrain='domain'
         )
 
-        # X-Achse konfigurieren
-        fig.update_xaxes(
-            rangeslider_visible=False,  # Rangeslider ausblenden
-            automargin=True,
-            range=[start_date, end_date],  # Setze Standardzoom
-            showspikes=True,
-            spikemode='across',
-            spikesnap='cursor',
-            showline=True,
-            showgrid=True,
-            fixedrange=False,
-            constrain='domain'
-        )
-
         # Weitere Anpassungen für beste Darstellung der Candlesticks
         fig.update_layout(
             xaxis_rangeslider_visible=False,
@@ -564,7 +578,6 @@ class ChartVisualizer:
         )
 
         return fig
-
     def plot_backtest_results(self, backtest_results, benchmark=None):
         """
         Visualisiert Backtest-Ergebnisse im TradingView-Stil.

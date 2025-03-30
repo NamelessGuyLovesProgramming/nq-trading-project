@@ -5,7 +5,8 @@ import os
 import sys
 
 from src.custom_html_writer import write_html_with_custom_interaction
-from web.custom_chart_component import create_candlestick_chart, create_backtest_chart
+from web.custom_chart_component import create_candlestick_chart, create_backtest_chart, downsample_data, \
+    filter_weekend_days
 import plotly.graph_objects as go
 from datetime import datetime
 import importlib
@@ -601,6 +602,12 @@ def run_backtest():
 
 
 # Visualisierungen
+# Updated visualize_data function for web/app.py
+
+# Updated visualize_data function for web/app.py
+
+# Aktualisierte Funktion in web/app.py, um die Option zum Überspringen von Wochenenden anzubieten
+
 def visualize_data():
     st.header("Daten visualisieren")
 
@@ -615,6 +622,89 @@ def visualize_data():
         ["Candlestick mit Indikatoren", "Signale anzeigen", "Backtest-Ergebnisse"]
     )
 
+    # Sicherstellen, dass Datums-Index korrekt ist
+    try:
+        if not isinstance(st.session_state.data.index, pd.DatetimeIndex):
+            st.warning("Daten haben keinen DateTime-Index. Versuche, Index zu konvertieren...")
+            st.session_state.data.index = pd.to_datetime(st.session_state.data.index)
+    except Exception as e:
+        st.error(f"Fehler beim Konvertieren des Index: {e}")
+        st.warning(
+            "Die Visualisierung könnte Probleme haben. Bitte stellen Sie sicher, dass die Daten korrekt geladen wurden.")
+
+    # Sicherstellen, dass OHLCV-Spalten numerisch sind
+    ohlcv_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+    for col in ohlcv_cols:
+        if col in st.session_state.data.columns and not pd.api.types.is_numeric_dtype(st.session_state.data[col]):
+            try:
+                st.session_state.data[col] = pd.to_numeric(st.session_state.data[col], errors='coerce')
+            except Exception as e:
+                st.warning(f"Konnte Spalte {col} nicht in numerischen Typ konvertieren: {e}")
+
+    # Dataset size estimation and warning
+    try:
+        data_size_mb = st.session_state.data.memory_usage(deep=True).sum() / (1024 * 1024)
+        data_points = len(st.session_state.data)
+
+        if data_size_mb > 50:
+            st.warning(
+                f"Der Datensatz ist groß ({data_points:,} Datenpunkte, ~{data_size_mb:.1f} MB). Die Visualisierung wird optimiert, um Speicherprobleme zu vermeiden.")
+    except Exception as e:
+        st.warning(f"Konnte Datensatzgröße nicht bestimmen: {e}")
+        data_size_mb = 999  # Setze auf hohen Wert, um Optimierungen zu aktivieren
+        data_points = len(st.session_state.data)
+
+    # Chart-Optionen
+    chart_options = st.expander("Chart-Optionen", expanded=True)
+    with chart_options:
+        col1, col2 = st.columns(2)
+        with col1:
+            # Neue Option: Wochenendtage überspringen
+            skip_weekends = st.checkbox("Wochenendtage überspringen", value=True,
+                                        help="Blendet Wochenendtage und Tage ohne Handelsdaten aus")
+        with col2:
+            max_points = st.slider("Maximale Anzahl von Datenpunkten",
+                                   min_value=1000,
+                                   max_value=20000,
+                                   value=10000,
+                                   step=1000,
+                                   help="Reduziere diese Zahl bei Speicherproblemen.")
+
+    # Add date range selector for large datasets
+    use_date_filter = st.checkbox("Zeitraum einschränken", value=data_size_mb > 100)
+    date_range = None
+
+    if use_date_filter:
+        try:
+            # Create date range selector
+            min_date = st.session_state.data.index.min()
+            max_date = st.session_state.data.index.max()
+
+            # Default to last month for large datasets
+            default_start = max_date - pd.Timedelta(days=30) if data_size_mb > 100 else min_date
+
+            col1, col2 = st.columns(2)
+            with col1:
+                start_date = st.date_input("Von", value=default_start, min_value=min_date, max_value=max_date)
+            with col2:
+                end_date = st.date_input("Bis", value=max_date, min_value=min_date, max_value=max_date)
+
+            # Convert to datetime for filtering
+            start_datetime = pd.Timestamp(start_date)
+            end_datetime = pd.Timestamp(end_date) + pd.Timedelta(days=1) - pd.Timedelta(
+                seconds=1)  # End of the selected day
+
+            date_range = (start_datetime, end_datetime)
+
+            # Show how many data points are in the selected range
+            filtered_data = st.session_state.data[(st.session_state.data.index >= start_datetime) &
+                                                  (st.session_state.data.index <= end_datetime)]
+            st.info(f"Ausgewählter Zeitraum enthält {len(filtered_data):,} von {data_points:,} Datenpunkten.")
+        except Exception as e:
+            st.error(f"Fehler bei der Datumsbereichsauswahl: {e}")
+            st.info("Versuche den Chart ohne Datumsfilter zu erstellen...")
+            date_range = None
+
     if chart_type == "Candlestick mit Indikatoren":
         # Wähle Indikatoren
         available_indicators = [col for col in st.session_state.data.columns
@@ -627,23 +717,52 @@ def visualize_data():
         )
 
         # Erstelle und rendere Chart mit benutzerdefinierten Interaktionen
-        create_candlestick_chart(st.session_state.data, indicators=selected_indicators)
+        # HIER die skip_weekends Option übergeben
+        create_candlestick_chart(
+            st.session_state.data,
+            indicators=selected_indicators,
+            date_range=date_range,
+            max_points=max_points,
+            skip_weekends=skip_weekends  # Neue Option übergeben
+        )
 
-        # Download-Button für Chart
+        # Download-Button for chart
         if st.button("Chart als HTML herunterladen"):
-            # Verwende die bestehende ChartVisualizer-Klasse
+            # Use the existing ChartVisualizer class
             visualizer = ChartVisualizer()
+
+            # Filter data if date range is provided
+            data_to_viz = st.session_state.data
+            if date_range:
+                start_date, end_date = date_range
+                data_to_viz = data_to_viz[(data_to_viz.index >= start_date) &
+                                          (data_to_viz.index <= end_date)]
+
+            # Filter weekend days if requested
+            if skip_weekends:
+                data_to_viz = filter_weekend_days(data_to_viz)
+
+            # Downsample if needed
+            if len(data_to_viz) > max_points:
+                data_to_viz = downsample_data(data_to_viz, max_points)
+
             chart = visualizer.plot_candlestick_with_indicators(
-                st.session_state.data,
+                data_to_viz,
                 indicators=selected_indicators
             )
 
-            # Erstelle temporäre Datei
+            # Configure chart to skip weekends if requested
+            if skip_weekends:
+                chart.update_xaxes(
+                    rangebreaks=[dict(pattern='day of week', bounds=[5, 7])]
+                )
+
+            # Create temporary file
             with tempfile.NamedTemporaryFile(suffix='.html', delete=False, mode='w', encoding='utf-8') as f:
                 temp_path = f.name
                 write_html_with_custom_interaction(chart, temp_path)
 
-            # Lese die Datei und biete Download an
+            # Read file and offer download
             with open(temp_path, 'r', encoding='utf-8') as f:
                 html_content = f.read()
 
@@ -672,10 +791,14 @@ def visualize_data():
         )
 
         # Erstelle und rendere Chart mit benutzerdefinierten Interaktionen
+        # HIER auch die skip_weekends Option übergeben
         create_candlestick_chart(
             st.session_state.data,
             indicators=selected_indicators,
-            signals=st.session_state.signals
+            signals=st.session_state.signals,
+            date_range=date_range,
+            max_points=max_points,
+            skip_weekends=skip_weekends  # Neue Option übergeben
         )
 
     elif chart_type == "Backtest-Ergebnisse":
@@ -683,10 +806,23 @@ def visualize_data():
             st.warning("Keine Backtest-Ergebnisse vorhanden. Bitte führen Sie zuerst einen Backtest durch.")
             return
 
-        # Erstelle und rendere Backtest-Chart mit benutzerdefinierten Interaktionen
-        create_backtest_chart(st.session_state.backtest_results)
+        # Downsampling options for very large backtest results
+        result_length = len(st.session_state.backtest_results.get('portfolio_value', []))
 
-# Hauptfunktion
+        if result_length > 5000:
+            max_points = st.slider("Maximale Anzahl von Datenpunkten",
+                                   min_value=1000,
+                                   max_value=10000,
+                                   value=5000,
+                                   step=1000,
+                                   help="Reduziere diese Zahl bei Speicherproblemen.")
+
+        # Erstelle und rendere Backtest-Chart mit benutzerdefinierten Interaktionen
+        create_backtest_chart(
+            st.session_state.backtest_results,
+            max_points=max_points
+        )
+
 def main():
     # Aktionen basierend auf ausgewähltem Tab
     if action == "Daten laden":
