@@ -1,3 +1,5 @@
+# Modifications for src/custom_html_writer.py
+
 def write_html_with_custom_interaction(fig, file_path):
     """
     Schreibt ein Plotly-Figure in eine HTML-Datei mit benutzerdefinierten Interaktionen.
@@ -10,6 +12,43 @@ def write_html_with_custom_interaction(fig, file_path):
         Pfad zur Ausgabedatei
     """
     import plotly.io as pio
+
+    # Verbessere die Proportionen des Charts
+    fig.update_layout(
+        # Besseres Seitenverhältnis für lesbarere Candlesticks
+        width=1200,
+        height=800,
+        # Verbessere die Darstellung
+        margin=dict(l=50, r=60, b=80, t=50)
+    )
+
+    # Verbessere die X-Achse mit lesbaren Zeitformaten
+    fig.update_xaxes(
+        # Bessere Zeitformatierung
+        tickformat="%H:%M\n%d.%m",
+        # Verbessere die Tick-Dichte
+        nticks=15,
+        # Ausrichtung der Beschriftungen
+        tickangle=0,
+        # Besser sichtbare Ticks
+        tickfont=dict(size=11),
+        # Verbesserte Gridlines
+        showgrid=True,
+        gridwidth=0.5,
+        gridcolor='rgba(200, 200, 200, 0.3)'
+    )
+
+    # Verbessere Y-Achse
+    fig.update_yaxes(
+        # Bessere Skalierung mit angemessenem Padding
+        autorange=True,
+        # Sichtbarere Ticks
+        tickfont=dict(size=11),
+        # Verbesserte Gridlines
+        showgrid=True,
+        gridwidth=0.5,
+        gridcolor='rgba(200, 200, 200, 0.3)'
+    )
 
     # Standard-HTML generieren
     html_content = pio.to_html(
@@ -27,9 +66,7 @@ def write_html_with_custom_interaction(fig, file_path):
         }
     )
 
-    # Diesen Code in der Datei src/custom_html_writer.py einfügen
-    # Ersetzen Sie den custom_js Block mit diesem verbesserten Code:
-
+    # Verbesserter Custom-JS-Code für bessere Candlestick-Darstellung
     custom_js = """
         <script>
         // Verbesserte Interaktionen für Plotly-Charts
@@ -64,29 +101,50 @@ def write_html_with_custom_interaction(fig, file_path):
 
                 candlestickPaths.forEach(function(path) {
                     // Verbessere die Linienbreite
-                    path.style.strokeWidth = "1px";
+                    path.style.strokeWidth = "2px";
 
                     // Erhöhe die Deckkraft für bessere Sichtbarkeit
                     path.style.opacity = "1";
 
-                    // Verstärke die Füllung
+                    // Verstärke die Füllung 
                     if (path.getAttribute('fill') === 'red') {
-                        path.style.fill = 'red';
+                        path.style.fill = '#FF4136';
                     } else if (path.getAttribute('fill') === 'green') {
-                        path.style.fill = 'green';
+                        path.style.fill = '#2ECC40';
                     }
                 });
 
-                // Verbessere auch die Candlestick-Linien
+                // Verbessere auch die Candlestick-Linien (Dochte)
                 var lines = document.querySelectorAll('.scatterlayer .trace path');
                 lines.forEach(function(line) {
-                    line.style.strokeWidth = "1px";
+                    line.style.strokeWidth = "1.5px";
                 });
             }
 
             // Führe die Verbesserung initial und nach jeder Aktualisierung des Charts aus
             enhanceCandlestickAppearance();
             gd.on('plotly_afterplot', enhanceCandlestickAppearance);
+
+            // Verbessere die Darstellung der Achsen
+            function improveAxisAppearance() {
+                // X-Achsen-Beschriftungen verbessern
+                var xTicks = document.querySelectorAll('.xtick text');
+                xTicks.forEach(function(tick) {
+                    tick.style.fontWeight = "normal";
+                    tick.style.fontSize = "11px";
+                });
+
+                // Y-Achsen-Beschriftungen verbessern
+                var yTicks = document.querySelectorAll('.ytick text');
+                yTicks.forEach(function(tick) {
+                    tick.style.fontWeight = "normal";
+                    tick.style.fontSize = "11px";
+                });
+            }
+
+            // Führe die Verbesserung initial und nach jeder Aktualisierung des Charts aus
+            improveAxisAppearance();
+            gd.on('plotly_afterplot', improveAxisAppearance);
 
             // Optimiere Y-Achsen-Darstellung
             function optimizeYAxisRange() {
@@ -214,9 +272,6 @@ def write_html_with_custom_interaction(fig, file_path):
                 }
             }, {passive: false});
 
-            // Rest des JavaScript bleibt unverändert
-            // [...]
-
             // Standardmäßig Candlesticks aktivieren und andere Traces ausblenden
             function setupDefaultVisibility() {
                 if (!gd._fullData) return;
@@ -285,20 +340,20 @@ def write_html_with_custom_interaction(fig, file_path):
         <style>
         /* Verbesserte Darstellung der Candlesticks */
         .candlestick path {
-            stroke-width: 1px !important;
+            stroke-width: 2px !important;
             opacity: 1 !important;
         }
 
         /* Dickere Candlestick-Körper */
         .candlestick path[fill="green"], 
         .candlestick path[fill="red"] {
-            stroke-width: 1px !important;
+            stroke-width: 2px !important;
             fill-opacity: 1 !important;
         }
 
         /* Grün und Rot besser hervorheben */
         .candlestick path[fill="green"] {
-            fill: #32CD32 !important; /* LimeGreen für bessere Sichtbarkeit */
+            fill: #2ECC40 !important; /* Kräftigeres Grün für bessere Sichtbarkeit */
         }
 
         .candlestick path[fill="red"] {
@@ -307,18 +362,32 @@ def write_html_with_custom_interaction(fig, file_path):
 
         /* Verbessere die Darstellung der Achsen */
         .xaxis path, .yaxis path {
-            stroke-width: 1px !important;
+            stroke-width: 1.5px !important;
+            stroke: #555 !important;
+        }
+
+        /* Verbessere X-Achsen-Beschriftungen */
+        .xtick text {
+            font-size: 11px !important;
+            font-weight: normal !important;
+        }
+
+        /* Verbessere Y-Achsen-Beschriftungen */
+        .ytick text {
+            font-size: 11px !important;
+            font-weight: normal !important;
         }
 
         /* Optimierter Stil für Raster */
         .gridlayer path {
             stroke-width: 0.5px !important;
             stroke-opacity: 0.3 !important;
+            stroke: #aaa !important;
         }
 
         /* Verbesserte Chart-Hintergrundfarbe */
         .main-svg .plotbg {
-            fill: #F8F9FA !important;
+            fill: #FCFCFC !important;
         }
 
         /* Stil für Reset-Button */

@@ -316,37 +316,12 @@ class ChartVisualizer:
 
         return fig
 
-    # Änderungen für die Methode plot_candlestick_with_indicators in src/visualization/charts.py
-
-    # Änderungen für die Methode plot_candlestick_with_indicators in src/visualization/charts.py
-
-    # Änderung für die plot_candlestick_with_indicators Methode in src/visualization/charts.py
-
     def plot_candlestick_with_indicators(self, df, indicators=None, signals=None, skip_weekends=True):
         """
-        Erstellt ein Candlestick-Chart mit Indikatoren und Signalen im TradingView-Stil.
-
-        - Standardansicht: Alle verfügbaren Candles anzeigen
-        - Preisanzeige und Y-Achse rechts
-        - Bessere Proportionen der Kerzenkörper
-        - Option zum Überspringen von Wochenendtagen
+        Erstellt ein Candlestick-Chart mit Indikatoren und Signalen im verbesserten Layout.
         """
         # DataFrame vorbereiten
         df = self._prepare_dataframe(df)
-
-        # Debug-Ausgabe
-        print(f"DataFrame-Index-Typ: {type(df.index)}")
-        print(f"DataFrame-Index-Beispiel: {df.index[:5]}")
-        print(f"DataFrame-Spalten nach Vorbereitung: {df.columns.tolist()}")
-        print(f"Anzahl der Datenpunkte: {len(df)}")
-
-        # Stelle sicher, dass der Index ein DatetimeIndex ist
-        if not isinstance(df.index, pd.DatetimeIndex):
-            try:
-                df.index = pd.to_datetime(df.index)
-                print("Index zu DatetimeIndex konvertiert")
-            except Exception as e:
-                print(f"Fehler beim Konvertieren des Index: {e}")
 
         # Entferne NaN-Werte in den OHLC-Spalten
         df = df.dropna(subset=['Open', 'High', 'Low', 'Close'])
@@ -373,13 +348,13 @@ class ChartVisualizer:
             name='Candlesticks',
             increasing_line_color='green',
             decreasing_line_color='red',
-            increasing_fillcolor='green',  # Füllung für steigende Kerzen
-            decreasing_fillcolor='red',  # Füllung für fallende Kerzen
-            line=dict(width=1),  # Dünnere Linie für bessere Darstellung
+            increasing_fillcolor='green',
+            decreasing_fillcolor='red',
+            line=dict(width=1.5),  # Dickere Linien für bessere Darstellung
             showlegend=False,
             # Verbessere die Darstellung der Kerzenkörper
             whiskerwidth=0.2,  # Schmälere Dochte
-            opacity=1  # Vollständige Deckkraft
+            opacity=1
         ), row=1, col=1)
 
         # Füge Indikatoren hinzu, falls gewünscht
@@ -399,11 +374,12 @@ class ChartVisualizer:
 
         # Füge Volumen hinzu
         if 'Volume' in df.columns:
+            volume_colors = np.where(df['Close'] >= df['Open'], 'rgba(0, 150, 0, 0.7)', 'rgba(200, 0, 0, 0.7)')
             fig.add_trace(go.Bar(
                 x=df.index,
                 y=df['Volume'],
                 name='Volume',
-                marker=dict(color='rgba(68, 68, 68, 0.7)'),
+                marker=dict(color=volume_colors),
                 showlegend=True,
                 visible='legendonly'
             ), row=2, col=1)
@@ -458,10 +434,8 @@ class ChartVisualizer:
 
         # Bei sehr vielen Datenpunkten, zeige die letzten X Kerzen standardmäßig
         if len(df) > 200:
-            # Zeige etwa die letzten 100-150 Kerzen standardmäßig
             start_date = df.index[max(0, len(df) - 150)]
         else:
-            # Bei weniger Datenpunkten, zeige alle
             start_date = df.index[0]
 
         # Layout-Einstellungen
@@ -478,61 +452,53 @@ class ChartVisualizer:
                 xanchor="right",
                 x=1
             ),
-            # TradingView-ähnliche Einstellungen
             dragmode='zoom',
             modebar_add=['drawline', 'eraseshape', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d'],
             autosize=True,
-            margin=dict(l=50, r=60, b=50, t=80),
+            margin=dict(l=50, r=60, b=80, t=50),  # Mehr Platz für X-Achsenbeschriftungen
             plot_bgcolor='rgb(250, 250, 250)',
             hovermode='x unified',
-            # Reset-Button hinzufügen
-            updatemenus=[
-                dict(
-                    type="buttons",
-                    showactive=False,
-                    buttons=[
-                        dict(
-                            label="Reset Zoom",
-                            method="relayout",
-                            args=[{
-                                "xaxis.range": [start_date, end_date],
-                                "yaxis.range": [y_min, y_max]
-                            }]
-                        )
-                    ],
-                    direction="left",
-                    pad={"r": 10, "t": 10},
-                    x=0.05,
-                    y=1.05,
-                    xanchor="left",
-                    yanchor="top"
-                )
-            ]
+            # X-Achse und Y-Achse im richtigen Verhältnis zueinander
+            yaxis=dict(
+                scaleanchor='x',  # Y-Achse an X-Achse ankern für besseres Verhältnis
+                scaleratio=0.2,  # Verhältnis zwischen Y- und X-Achse (anpassen nach Bedarf)
+                constraintoward='center'  # Ankerpunkt bei Skalierung
+            )
         )
 
-        # Konfiguriere X-Achse für das Überspringen von Tagen ohne Daten (Wochenenden)
+        # X-Achsenkonfiguration verbessern
         if skip_weekends:
             fig.update_xaxes(
-                type='category',  # Verwende kategorische Achse statt kontinuierlicher Zeitachse
-                rangeslider_visible=False,  # Rangeslider ausblenden
+                type='category',
+                rangeslider_visible=False,
                 rangebreaks=[
-                    # Wochenenden überspringen
                     dict(pattern='day of week', bounds=[5, 7])
-                ]
+                ],
+                # Verbesserte Formatierung der Zeitachse
+                tickformat="%H:%M\n%d.%m",  # Stunde:Minute und Tag.Monat
+                nticks=15,  # Angemessene Anzahl von Ticks
+                tickangle=0,  # Keine Rotation
+                tickmode='auto',
+                tickfont=dict(size=11)  # Lesbare Schriftgröße
             )
         else:
-            # Standard X-Achse konfigurieren
             fig.update_xaxes(
-                rangeslider_visible=False,  # Rangeslider ausblenden
+                rangeslider_visible=False,
                 automargin=True,
-                range=[start_date, end_date],  # Setze Standardzoom
+                range=[start_date, end_date],
                 showspikes=True,
                 spikemode='across',
                 spikesnap='cursor',
                 showline=True,
                 showgrid=True,
                 fixedrange=False,
-                constrain='domain'
+                constrain='domain',
+                # Verbesserte Formatierung der Zeitachse
+                tickformat="%H:%M\n%d.%m",  # Stunde:Minute und Tag.Monat
+                nticks=15,  # Angemessene Anzahl von Ticks
+                tickangle=0,  # Keine Rotation
+                tickmode='auto',
+                tickfont=dict(size=11)  # Lesbare Schriftgröße
             )
 
         # Y-Achse konfigurieren mit festen Grenzen für bessere Proportionen der Candlesticks
@@ -547,7 +513,12 @@ class ChartVisualizer:
             ticklabelposition='outside right',
             fixedrange=False,
             constrain='domain',
-            range=[y_min, y_max]  # Setze feste Range für bessere Proportionen
+            range=[y_min, y_max],  # Setze feste Range für bessere Proportionen
+            # Lesbare Beschriftungen
+            tickfont=dict(size=11),
+            # Verbesserte Gridlines
+            gridwidth=0.5,
+            gridcolor='rgba(200, 200, 200, 0.3)'
         )
 
         # Volumen-Y-Achse
@@ -561,23 +532,16 @@ class ChartVisualizer:
             automargin=True,
             ticklabelposition='outside right',
             fixedrange=False,
-            constrain='domain'
-        )
-
-        # Weitere Anpassungen für beste Darstellung der Candlesticks
-        fig.update_layout(
-            xaxis_rangeslider_visible=False,
-            showlegend=True,
-            # Optimiere Darstellung der Candlesticks
-            yaxis=dict(
-                autorange=False,  # Deaktiviere Autorange für bessere Kontrolle
-                range=[y_min, y_max],  # Verwende berechneten Bereich
-                tickmode='auto',
-                nticks=10  # Angemessene Anzahl von Ticks für bessere Lesbarkeit
-            )
+            constrain='domain',
+            # Lesbare Beschriftungen
+            tickfont=dict(size=11),
+            # Verbesserte Gridlines
+            gridwidth=0.5,
+            gridcolor='rgba(200, 200, 200, 0.3)'
         )
 
         return fig
+
     def plot_backtest_results(self, backtest_results, benchmark=None):
         """
         Visualisiert Backtest-Ergebnisse im TradingView-Stil.
