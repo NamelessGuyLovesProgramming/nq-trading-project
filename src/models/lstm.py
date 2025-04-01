@@ -1,11 +1,10 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout, BatchNormalization
-from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras.layers import LSTM, Dense, Dropout, BatchNormalization, Input
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 import matplotlib.pyplot as plt
 import os
-
 
 class LSTMModel:
     def __init__(self, input_shape, output_dir='models'):
@@ -26,57 +25,57 @@ class LSTMModel:
         # Stelle sicher, dass das Ausgabeverzeichnis existiert
         os.makedirs(output_dir, exist_ok=True)
 
+    # Dies ist eine angepasste Version der build_model-Methode für src/models/lstm.py
+
     def build_model(self):
         """
-        Erstellt das LSTM-Modell mit verbesserter Architektur und Fehlerbehandlung.
+        Erstellt ein vereinfachtes LSTM-Modell mit besserer Regularisierung zur Vermeidung von Overfitting.
 
         Returns:
         --------
         tf.keras.models.Sequential
             Das erstellte LSTM-Modell
         """
-        print(f"Erstelle LSTM-Modell mit Input-Shape: {self.input_shape}")
+        print(f"Erstelle optimiertes LSTM-Modell mit Input-Shape: {self.input_shape}")
 
         try:
             model = Sequential()
 
-            # Erste LSTM-Schicht mit weniger Units für kleinere Datensätze
-            lstm_units = min(50, max(20, self.input_shape[0] // 2))
-            print(f"Verwende {lstm_units} LSTM-Units basierend auf Input-Shape")
+            # Reduzierte Komplexität: Weniger LSTM-Units als vorher
+            lstm_units = min(20, max(10, self.input_shape[0] // 3))
+            print(f"Verwende {lstm_units} LSTM-Units zur Vermeidung von Overfitting")
 
-            # Erste LSTM-Schicht mit Return-Sequences für die nächste LSTM-Schicht
+            # Nur eine LSTM-Schicht statt zwei, mit stärkerer Dropout-Rate
             model.add(LSTM(
                 units=lstm_units,
-                return_sequences=True,
                 input_shape=self.input_shape,
-                activation='tanh',  # Explizite Aktivierungsfunktion
-                recurrent_activation='sigmoid',  # Standardakivierung für rekurrente Verbindungen
-                kernel_initializer='glorot_uniform'  # Bessere Initialisierung für Gewichte
-            ))
-            model.add(Dropout(0.2))
-            model.add(BatchNormalization())
-
-            # Zweite LSTM-Schicht
-            model.add(LSTM(
-                units=lstm_units // 2,  # Weniger Units in tieferen Schichten
-                return_sequences=False,
                 activation='tanh',
-                recurrent_activation='sigmoid'
+                recurrent_activation='sigmoid',
+                recurrent_dropout=0.1,  # Dropout innerhalb der rekurrenten Verbindungen
+                kernel_initializer='glorot_uniform',
+                # L2-Regularisierung hinzufügen
+                kernel_regularizer=tf.keras.regularizers.l2(0.001)
             ))
-            model.add(Dropout(0.2))
+
+            # Erhöhte Dropout-Rate
+            model.add(Dropout(0.4))
             model.add(BatchNormalization())
 
-            # Dense-Schichten
-            model.add(Dense(units=max(10, lstm_units // 4), activation='relu'))
-            model.add(Dropout(0.2))
+            # Einfachere Dense-Schicht
+            model.add(Dense(
+                units=max(8, lstm_units // 2),
+                activation='relu',
+                # L2-Regularisierung auch hier
+                kernel_regularizer=tf.keras.regularizers.l2(0.001)
+            ))
+            model.add(Dropout(0.3))
 
             # Ausgabeschicht
             model.add(Dense(units=1))
 
-            # Kompiliere das Modell mit verbessertem Optimizer
-            # Füge Adam-Optimizer mit angepassten Parametern hinzu
+            # Optimizer mit reduzierter Lernrate
             optimizer = tf.keras.optimizers.Adam(
-                learning_rate=0.001,
+                learning_rate=0.0005,  # Reduzierte Lernrate für stabileres Training
                 beta_1=0.9,
                 beta_2=0.999,
                 epsilon=1e-07
@@ -84,7 +83,7 @@ class LSTMModel:
 
             model.compile(optimizer=optimizer, loss='mean_squared_error')
 
-            # Gib Modellzusammenfassung aus
+            # Modellzusammenfassung ausgeben
             model.summary()
 
             self.model = model
@@ -93,20 +92,22 @@ class LSTMModel:
         except Exception as e:
             print(f"Fehler beim Erstellen des Modells: {e}")
 
-            # Fallback zu einem einfacheren Modell bei Fehler
-            print("Erstelle einfacheres Fallback-Modell...")
+            # Fallback zu einem sehr einfachen Modell bei Fehler
+            print("Erstelle einfaches Fallback-Modell...")
             fallback_model = Sequential()
-            fallback_model.add(LSTM(20, input_shape=self.input_shape))
-            fallback_model.add(Dense(10, activation='relu'))
+            fallback_model.add(LSTM(10, input_shape=self.input_shape))
+            fallback_model.add(Dense(5, activation='relu'))
             fallback_model.add(Dense(1))
             fallback_model.compile(optimizer='adam', loss='mean_squared_error')
 
             self.model = fallback_model
             return fallback_model
 
+    # Angepasste Version der train-Methode mit verbesserten Hyperparametern
+
     def train(self, X_train, y_train, X_val, y_val, epochs=50, batch_size=32):
         """
-        Trainiert das LSTM-Modell mit verbesserter Fehlerbehandlung und Anpassung.
+        Trainiert das LSTM-Modell mit optimierten Parametern zur Vermeidung von Overfitting.
 
         Parameters:
         -----------
@@ -119,7 +120,7 @@ class LSTMModel:
         y_val : np.array
             Validierungs-Labels
         epochs : int
-            Anzahl der Trainingsdurchläufe
+            Maximale Anzahl der Trainingsdurchläufe
         batch_size : int
             Batch-Größe
 
@@ -151,34 +152,33 @@ class LSTMModel:
             if self.model is None:
                 self.build_model()
 
-            # Passe Batch-Größe an, falls nötig
-            adjusted_batch_size = min(batch_size, len(X_train) // 10)
-            if adjusted_batch_size < batch_size:
-                print(f"Anpassung der Batch-Größe von {batch_size} auf {adjusted_batch_size} aufgrund der Datenmenge")
-                batch_size = max(1, adjusted_batch_size)
+            # Erhöhe Batch-Größe für bessere Generalisierung
+            adjusted_batch_size = min(128, max(64, len(X_train) // 100))
+            print(f"Verwende optimierte Batch-Größe: {adjusted_batch_size}")
+            batch_size = adjusted_batch_size
 
-            # Passe Epochs an, falls nötig
-            adjusted_epochs = min(epochs, 100)  # Limitiere die maximale Anzahl
+            # Reduziere die maximale Anzahl der Epochen
+            adjusted_epochs = min(30, epochs)
             if adjusted_epochs < epochs:
-                print(f"Anpassung der Epochs von {epochs} auf {adjusted_epochs}")
+                print(f"Anpassung der Epochs von {epochs} auf {adjusted_epochs} zur Vermeidung von Overfitting")
                 epochs = adjusted_epochs
 
-            # Callbacks für besseres Training
+            # Verbesserte Callbacks für optimales Training
             callbacks = [
-                # Early Stopping zur Vermeidung von Overfitting
-                EarlyStopping(
+                # Early Stopping mit geringerer Patience für schnelleres Stoppen bei Overfitting
+                tf.keras.callbacks.EarlyStopping(
                     monitor='val_loss',
-                    patience=10,
+                    patience=5,  # Reduziert von 10 auf 5
                     restore_best_weights=True,
                     verbose=1
                 ),
-                # Reduziere Learning Rate bei Plateau
+                # Aggressivere Learning Rate Reduzierung
                 tf.keras.callbacks.ReduceLROnPlateau(
                     monitor='val_loss',
-                    factor=0.5,
-                    patience=5,
+                    factor=0.3,  # Stärkere Reduzierung (von 0.5 auf 0.3)
+                    patience=3,  # Schnellere Anpassung (von 5 auf 3)
                     verbose=1,
-                    min_lr=0.0001
+                    min_lr=0.00005
                 ),
                 # ModelCheckpoint speichert das beste Modell
                 tf.keras.callbacks.ModelCheckpoint(
@@ -197,7 +197,7 @@ class LSTMModel:
                 validation_data=(X_val, y_val),
                 callbacks=callbacks,
                 verbose=1,
-                shuffle=True  # Wichtig für Zeitreihen: True für bessere Generalisierung
+                shuffle=True
             )
 
             # Speichere das trainierte Modell
@@ -210,25 +210,31 @@ class LSTMModel:
         except Exception as e:
             print(f"Fehler beim Training des Modells: {e}")
 
-            # Versuche es mit einem einfacheren Modell und reduzierter Komplexität
-            print("Versuche alternatives Training mit vereinfachtem Ansatz...")
+            # Versuche simpleres Training als Fallback
+            print("Versuche alternatives Training mit stark vereinfachtem Ansatz...")
             try:
-                # Erstelle einfacheres Modell
+                # Erstelle ein sehr einfaches Modell mit minimalen Parametern
                 simple_model = Sequential()
-                simple_model.add(LSTM(10, input_shape=self.input_shape))
+                simple_model.add(LSTM(8, input_shape=self.input_shape))
                 simple_model.add(Dense(1))
-                simple_model.compile(optimizer='adam', loss='mse')
+                simple_model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0005), loss='mse')
 
-                # Verwende kleinere Batch-Größe und weniger Epochs
+                # Verwende größere Batch-Größe und weniger Epochs
                 simple_history = simple_model.fit(
                     X_train, y_train,
-                    epochs=min(20, epochs),
-                    batch_size=max(1, len(X_train) // 20),
+                    epochs=10,
+                    batch_size=128,
                     validation_data=(X_val, y_val),
-                    verbose=1
+                    verbose=1,
+                    callbacks=[
+                        tf.keras.callbacks.EarlyStopping(
+                            monitor='val_loss',
+                            patience=3,
+                            restore_best_weights=True
+                        )
+                    ]
                 )
 
-                # Speichere das einfache Modell
                 self.model = simple_model
                 simple_model_path = os.path.join(self.output_dir, 'simple_lstm_model.h5')
                 self.model.save(simple_model_path)
@@ -239,13 +245,11 @@ class LSTMModel:
             except Exception as e2:
                 print(f"Auch alternatives Training fehlgeschlagen: {e2}")
 
-                # Erstelle Dummy-History-Objekt
                 class DummyHistory:
                     def __init__(self):
                         self.history = {'loss': [0], 'val_loss': [0]}
 
                 return DummyHistory()
-
     def plot_training_history(self, history):
         """
         Plottet den Trainingsverlauf.
@@ -308,3 +312,101 @@ class LSTMModel:
         """
         self.model = tf.keras.models.load_model(model_path)
         return self
+
+    # Füge diese Methode zur LSTMModel-Klasse in src/models/lstm.py hinzu
+
+    def build_improved_model(self):
+        """
+        Erstellt ein verbessertes LSTM-Modell mit reduzierter Komplexität und besserer Regularisierung.
+        Diese Methode ist speziell auf die Vermeidung von Overfitting ausgelegt.
+
+        Returns:
+        --------
+        tf.keras.models.Model
+            Das erstellte LSTM-Modell
+        """
+
+        print(f"Erstelle verbessertes LSTM-Modell mit Input-Shape: {self.input_shape}")
+
+        try:
+            # Reduzierte Komplexität
+            lstm_units = min(20, max(10, self.input_shape[0] // 3))
+            print(f"Verwende reduzierte LSTM-Units: {lstm_units} (zur Vermeidung von Overfitting)")
+
+            # Funktionales API-Modell mit Input-Layer
+            inputs = Input(shape=self.input_shape)
+
+            # Erste LSTM-Schicht mit stärkerer Regularisierung
+            x = LSTM(
+                units=lstm_units,
+                return_sequences=False,  # Keine Sequenz zurückgeben für einfachere Architektur
+                activation='tanh',
+                recurrent_dropout=0.1,  # Dropout in rekurrenten Verbindungen
+                kernel_regularizer=tf.keras.regularizers.l2(0.001)  # L2-Regularisierung
+            )(inputs)
+
+            # Stärkerer Dropout zur Vermeidung von Overfitting
+            x = Dropout(0.4)(x)
+            x = BatchNormalization()(x)
+
+            # Einfachere Dense-Schicht
+            x = Dense(
+                units=max(8, lstm_units // 2),
+                activation='relu',
+                kernel_regularizer=tf.keras.regularizers.l2(0.001)
+            )(x)
+            x = Dropout(0.3)(x)
+
+            # Ausgabeschicht
+            outputs = Dense(units=1)(x)
+
+            # Erstelle Modell
+            model = Model(inputs=inputs, outputs=outputs)
+
+            # Kompilieren mit angepasstem Optimizer für stabileres Training
+            optimizer = tf.keras.optimizers.Adam(
+                learning_rate=0.0005,  # Reduzierte Lernrate
+                beta_1=0.9,
+                beta_2=0.999,
+                epsilon=1e-07
+            )
+
+            model.compile(optimizer=optimizer, loss='mean_squared_error')
+
+            # Ausgabe der Modellzusammenfassung
+            model.summary()
+
+            self.model = model
+            return model
+
+        except Exception as e:
+            print(f"Fehler beim Erstellen des verbesserten Modells: {e}")
+
+            # Fallback zu einem noch einfacheren Modell
+            print("Erstelle einfaches Fallback-Modell...")
+
+            try:
+                # Sehr einfaches funktionales Modell
+                inputs = Input(shape=self.input_shape)
+                x = LSTM(10)(inputs)
+                outputs = Dense(1)(x)
+
+                fallback_model = Model(inputs=inputs, outputs=outputs)
+                fallback_model.compile(optimizer='adam', loss='mean_squared_error')
+
+                self.model = fallback_model
+                return fallback_model
+
+            except Exception as e2:
+                print(f"Auch das verbesserte Fallback-Modell konnte nicht erstellt werden: {e2}")
+
+                # Letzte Möglichkeit: Sequential API
+                from tensorflow.keras.models import Sequential
+
+                fallback_model = Sequential()
+                fallback_model.add(LSTM(8, input_shape=self.input_shape))
+                fallback_model.add(Dense(1))
+                fallback_model.compile(optimizer='adam', loss='mean_squared_error')
+
+                self.model = fallback_model
+                return fallback_model

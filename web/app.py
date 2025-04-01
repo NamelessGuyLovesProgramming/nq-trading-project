@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import os
 import sys
+import tensorflow as tf
 
 from src.custom_html_writer import write_html_with_custom_interaction
 from web.custom_chart_component import create_candlestick_chart, create_backtest_chart, downsample_data, \
@@ -213,15 +214,24 @@ def train_model():
                         status_text.text(
                             f"Epoch {epoch + 1}/{epochs} - Loss: {logs['loss']:.4f} - Val Loss: {logs['val_loss']:.4f}")
 
-                # Training mit Progress-Bar
-                history = model.train(
+
+                # Verwende stattdessen:
+                # Zuerst Modell erstellen und kompilieren (wird bereits in model.build_model() gemacht)
+                # Dann direktes Aufrufen von model.model.fit() statt model.train()
+                history = model.model.fit(
                     X_train, y_train,
-                    X_test, y_test,
                     epochs=epochs,
                     batch_size=batch_size,
-                    callbacks=[StreamlitCallback()]
+                    validation_data=(X_test, y_test),
+                    callbacks=[StreamlitCallback()],
+                    verbose=1,
+                    shuffle=True
                 )
 
+                # Nach dem Training, wenn du das Modell speichern möchtest:
+                model_path = os.path.join('output', 'models', 'lstm_model.h5')
+                model.model.save(model_path)
+                print(f"Modell gespeichert unter {model_path}")
                 # Zeige Trainingshistorie
                 st.subheader("Trainingshistorie")
                 hist_df = pd.DataFrame(history.history)

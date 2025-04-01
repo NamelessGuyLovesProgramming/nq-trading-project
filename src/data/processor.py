@@ -152,9 +152,28 @@ class DataProcessor:
         print(f"Indikatoren erfolgreich hinzugefügt. DataFrame-Form: {ohlc_df.shape}")
         return ohlc_df
 
+    # Dies ist eine angepasste Version der prepare_data_for_ml-Methode für src/data/processor.py
+
     def prepare_data_for_ml(self, df, target_col='Close', window_size=60, test_size=0.2, scale=True):
         """
-        Bereitet Daten für das ML-Modell vor.
+        Bereitet Daten für das ML-Modell vor mit verbesserter Skalierung und Validierungssplit.
+
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            DataFrame mit OHLCV-Daten und Indikatoren
+        target_col : str
+            Zielspalte für die Vorhersage
+        window_size : int
+            Größe des Zeitfensters für Eingabedaten
+        test_size : float
+            Anteil der Daten für den Testsatz
+        scale : bool
+            Ob die Daten skaliert werden sollen
+
+        Returns:
+        --------
+        X_train, y_train, X_test, y_test, scaler
         """
         df_ml = df.copy()
 
@@ -166,15 +185,19 @@ class DataProcessor:
         df_ml = df_ml.interpolate(method='linear')
 
         # Für verbleibende NaN-Werte (z.B. am Anfang der Zeitreihe)
-        # Verwende ffill und bfill statt fillna(method=...)
         df_ml = df_ml.ffill().bfill()
 
         print(f"DataFrame nach NaN-Behandlung: {df_ml.shape}")
 
-        # Feature-Auswahl (kann angepasst werden)
-        features = ['Open', 'High', 'Low', 'Close', 'Volume',
-                    'SMA_20', 'EMA_9', 'RSI', 'MACD', 'MACD_Hist',
-                    'BB_Upper', 'BB_Lower', 'STOCH_k', 'ATR']
+        # Feature-Auswahl - Reduziert auf die wichtigsten Features zur Vermeidung von Overfitting
+        # Entferne stark korrelierte Features
+        essential_features = ['Open', 'High', 'Low', 'Close', 'Volume']
+
+        # Reduzierte Anzahl technischer Indikatoren
+        technical_features = ['SMA_20', 'EMA_9', 'RSI', 'MACD', 'BB_Upper', 'BB_Lower']
+
+        # Kombinierte Feature-Liste
+        features = essential_features + technical_features
 
         # Prüfe, ob alle Features vorhanden sind
         available_features = [f for f in features if f in df_ml.columns]
@@ -192,10 +215,16 @@ class DataProcessor:
         print(f"Feature-Daten Shape: {feature_data.shape}")
         print(f"Ziel-Daten Shape: {target_data.shape}")
 
-        # Skalierung
+        # Verbesserte Skalierung - Separate Skalierung für Ziel
         if scale and feature_data.shape[0] > 0:
+            # Skaliere Features
             feature_data = self.scaler.fit_transform(feature_data)
-            print("Daten wurden skaliert")
+
+            # Skaliere auch Zieldaten separat für bessere Ergebnisse
+            target_scaler = MinMaxScaler()
+            target_data = target_scaler.fit_transform(target_data.reshape(-1, 1)).flatten()
+
+            print("Daten wurden skaliert (Features und Ziel separat)")
 
         # Erstelle Sequenzen für LSTM
         X, y = [], []
@@ -207,14 +236,82 @@ class DataProcessor:
         print(f"X Shape nach Sequenzerstellung: {X.shape}")
         print(f"y Shape nach Sequenzerstellung: {y.shape}")
 
-        # Split in Trainings- und Testdaten
+        # Verbesserter Train-Test-Split für Zeitreihen
+        # Anstatt zufälligen Split zu verwenden, nehmen wir einen zeitlich geordneten Split
+        # Das heißt, die Trainingsdaten kommen vor den Testdaten
         train_size = int(len(X) * (1 - test_size))
         X_train, X_test = X[:train_size], X[train_size:]
         y_train, y_test = y[:train_size], y[train_size:]
 
         print(f"X_train Shape: {X_train.shape}, X_test Shape: {X_test.shape}")
 
+        # Validiere die Daten auf extreme Werte
+        train_mean, train_std = np.mean(X_train), np.std(X_train)
+        test_mean, test_std = np.mean(X_test), np.std(X_test)
+
+        print(f"Training data stats - Mean: {train_mean:.4f}, Std: {train_std:.4f}")
+        print(f"Testing data stats - Mean: {test_mean:.4f}, Std: {test_std:.4f}")
+
+        # Warne, wenn die Testdaten stark von den Trainingsdaten abweichen
+        if abs(train_mean - test_mean) > 2 * train_std:
+            print(
+                "WARNUNG: Testdaten weichen stark von Trainingsdaten ab! Dies könnte zu schlechter Generalisierung führen.")
+
         return X_train, y_train, X_test, y_test, self.scaler
+
+    # Füge diese neue Funktion hinzu, um Trainingsdaten für höhere Robustheit zu erweitern
+
+    def augment_time_series(X, y, noise_level=0.005, shift_max=2):
+        """
+        Erweitert Zeitreihendaten durch Hinzufügen von leichtem Rauschen und Verschiebungen.
+
+        Parameters:
+        -----------
+        X : np.array
+            Features (3D array für LSTM)
+        y : np.array
+            Zielvariable
+        noise_level : float
+            Standard-Abweichung des hinzuzufügenden Rauschens
+        shift_max : int
+            Maximale Verschiebung der Sequenzen
+
+        Returns:
+        --------
+        X_aug, y_aug : Erweiterte Datensätze
+        """
+        X_aug, y_aug = X.copy(), y.copy()
+
+        # Füge Rauschen hinzu
+        X_noise = X + np.random.normal(0, noise_level, X.shape)
+        y_noise = y + np.random.normal(0, noise_level, y.shape)
+
+        # Erstelle zeitlich verschobene Versionen (nur für einen Teil der Daten)
+        subset_size = len(X) // 4  # Nur 25% der Daten verschieben
+
+        for shift in range(1, shift_max + 1):
+            # Verschiebe die Sequenzen um 'shift' Zeitschritte
+            X_shifted = X[:subset_size].copy()
+            # Verschiebe innerhalb jeder Sequenz
+            X_shifted = np.roll(X_shifted, shift, axis=1)
+            # Die entsprechenden Zielwerte bleiben gleich
+            y_shifted = y[:subset_size].copy()
+
+            # Füge die verschobenen Daten hinzu
+            X_aug = np.vstack([X_aug, X_shifted])
+            y_aug = np.concatenate([y_aug, y_shifted])
+
+        # Kombiniere die ursprünglichen und verrauschten Daten
+        X_aug = np.vstack([X_aug, X_noise])
+        y_aug = np.concatenate([y_aug, y_noise])
+
+        # Mische die Daten
+        indices = np.random.permutation(len(X_aug))
+        X_aug, y_aug = X_aug[indices], y_aug[indices]
+
+        print(f"Originale Daten: {len(X)}, Erweiterte Daten: {len(X_aug)}")
+
+        return X_aug, y_aug
 
     def generate_signals(self, df, predictions, threshold=0.01):
         """

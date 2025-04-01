@@ -250,6 +250,7 @@ def main():
         print(f"Chart mit Signalen und interaktiven Funktionen erstellt und gespeichert unter {chart_path}")
 
     # ML-Modell Training
+
     if args.train:
         print("\n4. ML-Modell trainieren...")
 
@@ -257,15 +258,15 @@ def main():
             # Importiere config für Standardparameter
             from config import WINDOW_SIZE, BATCH_SIZE, EPOCHS
 
-            window_size = WINDOW_SIZE
-            print(f"Verwende Fenstergrößoe (window_size): {window_size}")
+            window_size = args.window_size if hasattr(args, 'window_size') else WINDOW_SIZE
+            print(f"Verwende Fenstergröße (window_size): {window_size}")
 
             # Erstelle Ausgabeverzeichnis für Modelle
             models_dir = os.path.join(args.output_dir, 'models')
             os.makedirs(models_dir, exist_ok=True)
 
             # Prüfe, ob die Datenmenge ausreichend ist
-            min_required_data = window_size * 3  # Mind. 3 Sequenzen
+            min_required_data = window_size * 5  # Erhöht von 3 auf 5 für bessere Übung
             if len(data_with_indicators) < min_required_data:
                 print(
                     f"Warnung: Zu wenig Daten für Modelltraining (benötigt: {min_required_data}, vorhanden: {len(data_with_indicators)})")
@@ -276,8 +277,9 @@ def main():
 
             # Daten vorbereiten mit verbesserter Fehlerbehandlung
             try:
+                processor = DataProcessor()
                 X_train, y_train, X_test, y_test, scaler = processor.prepare_data_for_ml(
-                    data_with_indicators, window_size=window_size
+                    data_with_indicators, window_size=window_size, test_size=args.test_size
                 )
 
                 print(f"Trainingsdaten: {X_train.shape}, Testdaten: {X_test.shape}")
@@ -288,12 +290,20 @@ def main():
                     if X_train.shape[0] == 0 or X_test.shape[0] == 0:
                         raise ValueError("Keine Trainings- oder Testdaten verfügbar.")
 
+                # NEU: Erweitere die Trainingsdaten für höhere Robustheit
+                print("Erweitere Trainingsdaten für bessere Robustheit...")
+                X_train_aug, y_train_aug = processor.augment_time_series(X_train, y_train)
+                print(f"Erweiterte Trainingsdaten: {X_train_aug.shape}")
+
+                # Verwende die erweiterten Daten für das Training
+                X_train, y_train = X_train_aug, y_train_aug
+
             except Exception as e:
                 print(f"Fehler bei der Datenvorbereitung: {e}")
                 print("Versuche alternative Datenvorbereitung mit kürzerem Fenster...")
 
                 # Versuche mit kürzerem Fenster
-                window_size = min(30, len(data_with_indicators) // 4)
+                window_size = min(30, len(data_with_indicators) // 8)  # Reduktion für bessere Generalisierung
                 X_train, y_train, X_test, y_test, scaler = processor.prepare_data_for_ml(
                     data_with_indicators, window_size=window_size
                 )
@@ -303,18 +313,58 @@ def main():
             input_shape = (window_size, X_train.shape[2])
             model = LSTMModel(input_shape, output_dir=models_dir)
 
+            # NEU: Optionen für Verbesserte Modellarchitektur
+            use_improved_architecture = True  # Option für verbesserte Architektur
+
             # Baue und trainiere das Modell mit Fehlerbehandlung
             try:
-                model.build_model()
+                # Verwende verbesserte Modellarchitektur
+                if use_improved_architecture:
+                    print("Verwende verbesserte Modellarchitektur zur Vermeidung von Overfitting...")
+                    model.build_improved_model()  # Angenommen, diese Methode wurde implementiert
+                else:
+                    model.build_model()
 
                 # Passe Batch-Größe an Datenmenge an
-                adjusted_batch_size = min(BATCH_SIZE, max(1, len(X_train) // 10))
+                adjusted_batch_size = min(128, max(64, len(X_train) // 100))
+                print(f"Verwende optimierte Batch-Größe: {adjusted_batch_size}")
+
+                # Reduzierte Epochen-Anzahl
+                adjusted_epochs = min(30, EPOCHS)
+                print(f"Verwende reduzierte Epochen-Anzahl: {adjusted_epochs}")
+
+                # NEU: Konfigurierbare Callbacks
+                callbacks = [
+                    # Early Stopping mit angepasster Patience
+                    tf.keras.callbacks.EarlyStopping(
+                        monitor='val_loss',
+                        patience=5,  # Reduziert von 10
+                        restore_best_weights=True,
+                        verbose=1
+                    ),
+                    # Learning Rate Reduktion
+                    tf.keras.callbacks.ReduceLROnPlateau(
+                        monitor='val_loss',
+                        factor=0.3,  # Stärkere Reduktion
+                        patience=3,  # Schnellere Anpassung
+                        verbose=1,
+                        min_lr=0.00005
+                    ),
+                    # ModelCheckpoint
+                    tf.keras.callbacks.ModelCheckpoint(
+                        filepath=os.path.join(models_dir, 'best_model.h5'),
+                        monitor='val_loss',
+                        save_best_only=True,
+                        verbose=1
+                    )
+                ]
 
                 history = model.train(
                     X_train, y_train,
                     X_test, y_test,
-                    epochs=EPOCHS,
-                    batch_size=adjusted_batch_size
+                    epochs=adjusted_epochs,
+                    batch_size=adjusted_batch_size,
+                    callbacks=callbacks
                 )
 
                 # Trainingshistorie plotten
@@ -350,18 +400,52 @@ def main():
                     f.write(f"Zeitraum: {args.period}\n")
                     f.write(f"Intervall: {args.interval}\n")
                     f.write(f"Window Size: {window_size}\n")
+                    f.write(f"Batch Size: {adjusted_batch_size}\n")
+                    f.write(f"Epochs: {adjusted_epochs}\n")
                     f.write(f"Trainingsdata Shape: {X_train.shape}\n")
                     f.write(f"Testdata Shape: {X_test.shape}\n")
                     f.write(f"MSE: {mse:.6f}\n")
                     f.write(f"RMSE: {rmse:.6f}\n")
                     f.write(f"MAE: {mae:.6f}\n")
                     f.write(f"MAPE: {mape:.2f}%\n")
+                    f.write(f"Verwendete verbesserte Architektur: {use_improved_architecture}\n")
 
                 print(f"Metriken in {metrics_file} gespeichert")
 
             except Exception as e:
                 print(f"Fehler beim Modelltraining: {e}")
                 print("Das Training konnte nicht erfolgreich abgeschlossen werden.")
+                print("Versuche mit einem stark vereinfachten Modell...")
+
+                # Erstelle ein sehr einfaches Modell
+                try:
+                    simple_model = Sequential()
+                    simple_model.add(LSTM(8, input_shape=(window_size, X_train.shape[2])))
+                    simple_model.add(Dense(1))
+                    simple_model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0005), loss='mse')
+
+                    # Trainiere mit minimalen Parametern
+                    simple_history = simple_model.fit(
+                        X_train, y_train,
+                        epochs=10,
+                        batch_size=128,
+                        validation_data=(X_test, y_test),
+                        callbacks=[
+                            tf.keras.callbacks.EarlyStopping(
+                                monitor='val_loss',
+                                patience=3,
+                                restore_best_weights=True
+                            )
+                        ]
+                    )
+
+                    # Speichere das einfache Modell
+                    simple_model_path = os.path.join(models_dir, 'simple_lstm_model.h5')
+                    simple_model.save(simple_model_path)
+                    print(f"Einfaches Fallback-Modell gespeichert unter {simple_model_path}")
+
+                except Exception as e2:
+                    print(f"Auch das Fallback-Modell konnte nicht trainiert werden: {e2}")
 
         except Exception as e:
             print(f"Unerwarteter Fehler im ML-Trainingsablauf: {e}")
