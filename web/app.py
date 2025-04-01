@@ -237,24 +237,34 @@ def train_model():
                 hist_df = pd.DataFrame(history.history)
                 st.line_chart(hist_df)
 
-                # Vorhersagen auf Testdaten
+                # Vorhersagen auf Testdaten generieren
                 predictions = model.predict(X_test)
 
                 # Leistungsmetriken berechnen
-                mse = np.mean((predictions - y_test) ** 2)
+                # Sicherere Metrikberechnung
+                predictions = predictions.flatten()
+                y_test = y_test.flatten()
+
+                # Überprüfe Formen vor der Berechnung
+                print(f"Vorhersagen-Form: {predictions.shape}, y_test-Form: {y_test.shape}")
+
+                # Stelle sicher, dass die Formen übereinstimmen
+                min_len = min(len(predictions), len(y_test))
+                predictions = predictions[:min_len]
+                y_test = y_test[:min_len]
+
+                # Jetzt berechne die Metriken
+                mse = np.mean(np.square(predictions - y_test))
                 rmse = np.sqrt(mse)
                 mae = np.mean(np.abs(predictions - y_test))
-                mape = np.mean(np.abs((y_test - predictions) / y_test)) * 100
 
-                # Zeige Metriken
-                metrics_col1, metrics_col2 = st.columns(2)
-                with metrics_col1:
-                    st.metric("MSE", f"{mse:.6f}")
-                    st.metric("RMSE", f"{rmse:.6f}")
-                with metrics_col2:
-                    st.metric("MAE", f"{mae:.6f}")
-                    st.metric("MAPE", f"{mape:.2f}%")
-
+                # Vorsichtig bei der MAPE-Berechnung, um Division durch Null zu vermeiden
+                non_zero_mask = (y_test != 0)
+                if np.any(non_zero_mask):
+                    mape = np.mean(
+                        np.abs((y_test[non_zero_mask] - predictions[non_zero_mask]) / y_test[non_zero_mask])) * 100
+                else:
+                    mape = np.nan
                 # Speichere Modell in Session-State
                 st.session_state.model = model
 
