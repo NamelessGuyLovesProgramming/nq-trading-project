@@ -8,8 +8,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 from src.data.processor import DataProcessor
 from src.models.lstm import LSTMModel
-from web.ml_model_ui import scan_for_orphaned_models
-
+from src.models.model_manager import ModelManager, scan_for_orphaned_models
 
 class ModelManager:
     """
@@ -336,6 +335,10 @@ class ModelManager:
     from sklearn.preprocessing import MinMaxScaler
 
     # Diese Funktion kann in die ModelManager-Klasse integriert werden
+    # Entfernen Sie diesen Import:
+    # from web.ml_model_ui import scan_for_orphaned_models
+
+    # Fügen Sie stattdessen die Funktion direkt hier ein:
     def scan_for_orphaned_models(models_dir='output/models'):
         """
         Scannt nach Modellen ohne Metadatendateien und erstellt einfache Metadaten für sie.
@@ -345,6 +348,11 @@ class ModelManager:
         list
             Liste der neu erstellten Metadatendateien
         """
+        import os
+        import json
+        from datetime import datetime
+        import tensorflow as tf
+
         # Metadatenverzeichnis
         metadata_dir = os.path.join(models_dir, 'metadata')
         os.makedirs(metadata_dir, exist_ok=True)
@@ -533,7 +541,7 @@ class ModelManager:
             return False
 
     # Beispielcode für die Integration in die Streamlit-App
-    def integrate_scan_for_models(self):
+    def integrate_scan_for_models():
         """
         Integriert die scan_for_orphaned_models-Funktion in die Streamlit-App.
         """
@@ -546,3 +554,100 @@ class ModelManager:
                     st.success(f"{len(created_files)} Metadatendateien erstellt!")
                 else:
                     st.info("Keine unbeschriebenen Modelle gefunden.")
+
+
+
+def scan_for_orphaned_models(models_dir='output/models'):
+    """
+    Scannt nach Modellen ohne Metadatendateien und erstellt einfache Metadaten für sie.
+
+    Returns:
+    --------
+    list
+        Liste der neu erstellten Metadatendateien
+    """
+    import os
+    import json
+    from datetime import datetime
+    import tensorflow as tf
+
+    # Metadatenverzeichnis
+    metadata_dir = os.path.join(models_dir, 'metadata')
+    os.makedirs(metadata_dir, exist_ok=True)
+
+    # Suche nach .h5 Dateien
+    h5_files = [f for f in os.listdir(models_dir) if f.endswith('.h5')]
+
+    # Suche nach JSON-Dateien
+    json_files = [f for f in os.listdir(metadata_dir) if f.endswith('.json')]
+    json_basenames = [os.path.splitext(f)[0] for f in json_files]
+
+    # Finde Modelle ohne Metadaten
+    orphaned_models = [f for f in h5_files if os.path.splitext(f)[0] not in json_basenames]
+
+    # Erstelle Metadaten für verwaiste Modelle
+    created_metadata = []
+
+    for model_file in orphaned_models:
+        try:
+            model_path = os.path.join(models_dir, model_file)
+            metadata_path = os.path.join(metadata_dir, os.path.splitext(model_file)[0] + '.json')
+
+            # Lade das Modell
+            model = tf.keras.models.load_model(model_path)
+
+            # Extrahiere Modellinformationen
+            input_shape = model.input_shape[1:]  # Entferne Batch-Dimension
+
+            # Bestimme window_size aus dem Input-Shape
+            window_size = input_shape[0] if len(input_shape) > 1 else input_shape[0]
+
+            # Extrahiere Anzahl der Features
+            num_features = input_shape[1] if len(input_shape) > 1 else 1
+
+            # Erstelle Standardfeatures basierend auf Anzahl
+            standard_features = ['Open', 'High', 'Low', 'Close', 'Volume']
+            technical_indicators = [
+                'SMA_20', 'EMA_9', 'RSI', 'MACD', 'MACD_Signal', 'MACD_Hist',
+                'BB_Upper', 'BB_Lower', 'BB_Middle', 'ATR', 'STOCH_k', 'STOCH_d'
+            ]
+
+            if num_features <= 5:
+                features = standard_features[:num_features]
+            else:
+                features = standard_features + technical_indicators[:num_features - 5]
+
+            # Generiere Metadaten
+            metadata = {
+                "name": os.path.splitext(model_file)[0],
+                "created_at": datetime.now().isoformat(),
+                "window_size": window_size,
+                "epochs": 50,  # Standardwert, kann später aktualisiert werden
+                "batch_size": 32,  # Standardwert, kann später aktualisiert werden
+                "input_shape": list(input_shape),
+                "features": features,
+                "metrics": {
+                    "mse": 0.0001,  # Platzhalterwerte, die später aktualisiert werden können
+                    "rmse": 0.01,
+                    "mae": 0.008,
+                    "mape": 1.5
+                },
+                "training_samples": 1000,  # Platzhalter
+                "testing_samples": 200,  # Platzhalter
+                "parameters": {
+                    "layers": [layer.name for layer in model.layers],
+                    "total_params": model.count_params()
+                }
+            }
+
+            # Speichere Metadaten
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=4)
+
+            print(f"Metadaten für {model_file} erstellt: {metadata_path}")
+            created_metadata.append(metadata_path)
+
+        except Exception as e:
+            print(f"Fehler beim Erstellen von Metadaten für {model_file}: {e}")
+
+    return created_metadata
