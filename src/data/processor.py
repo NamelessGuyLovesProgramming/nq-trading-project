@@ -132,6 +132,12 @@ class DataProcessor:
 
             ohlc_df['OBV'] = obv_array
 
+            # NEU: FVG (Fair Value Gap) Indikatoren
+            ohlc_df = self.add_fvg_indicators(ohlc_df)
+
+            # NEU: Sweep Indikatoren
+            ohlc_df = self.add_sweep_indicators(ohlc_df)
+
             # Überprüfe auf NaN-Werte in den berechneten Indikatoren
             nan_counts = ohlc_df.isna().sum()
             if nan_counts.sum() > 0:
@@ -152,9 +158,90 @@ class DataProcessor:
         print(f"Indikatoren erfolgreich hinzugefügt. DataFrame-Form: {ohlc_df.shape}")
         return ohlc_df
 
+    def add_fvg_indicators(self, df):
+        """
+        Fügt sowohl reguläre als auch inverse Fair Value Gap (FVG) Indikatoren zum DataFrame hinzu.
+
+        Reguläre FVGs:
+        - Bullish FVG: Low[i] > High[i-2]
+        - Bearish FVG: High[i] < Low[i-2]
+
+        Inverse FVGs:
+        - Inverse Bullish FVG: High[i-1] < Low[i] und High[i-1] < Low[i-2]
+        - Inverse Bearish FVG: Low[i-1] > High[i] und Low[i-1] > High[i-2]
+        """
+        # Initialisiere die Spalten für reguläre FVGs
+        df['Bullish_FVG'] = 0
+        df['Bearish_FVG'] = 0
+        df['FVG_Size'] = 0
+
+        # Initialisiere die Spalten für inverse FVGs
+        df['Inv_Bullish_FVG'] = 0
+        df['Inv_Bearish_FVG'] = 0
+        df['Inv_FVG_Size'] = 0
+
+        # Berechne FVGs und inverse FVGs
+        for i in range(2, len(df)):
+            # Reguläre FVGs
+            if df['Low'].iloc[i] > df['High'].iloc[i - 2]:
+                df.loc[df.index[i], 'Bullish_FVG'] = 1
+                df.loc[df.index[i], 'FVG_Size'] = df['Low'].iloc[i] - df['High'].iloc[i - 2]
+
+            elif df['High'].iloc[i] < df['Low'].iloc[i - 2]:
+                df.loc[df.index[i], 'Bearish_FVG'] = 1
+                df.loc[df.index[i], 'FVG_Size'] = df['Low'].iloc[i - 2] - df['High'].iloc[i]
+
+            # Inverse FVGs
+            if df['High'].iloc[i - 1] < df['Low'].iloc[i] and df['High'].iloc[i - 1] < df['Low'].iloc[i - 2]:
+                df.loc[df.index[i], 'Inv_Bullish_FVG'] = 1
+                df.loc[df.index[i], 'Inv_FVG_Size'] = min(df['Low'].iloc[i], df['Low'].iloc[i - 2]) - df['High'].iloc[
+                    i - 1]
+
+            elif df['Low'].iloc[i - 1] > df['High'].iloc[i] and df['Low'].iloc[i - 1] > df['High'].iloc[i - 2]:
+                df.loc[df.index[i], 'Inv_Bearish_FVG'] = 1
+                df.loc[df.index[i], 'Inv_FVG_Size'] = df['Low'].iloc[i - 1] - max(df['High'].iloc[i],
+                                                                                  df['High'].iloc[i - 2])
+
+        return df
+
+    def add_sweep_indicators(self, df, lookback=5):
+        """
+        Fügt Liquidity Sweep Indikatoren zum DataFrame hinzu.
+
+        Bullish Sweep: Preis fällt unter letztes Tief und steigt dann wieder
+        Bearish Sweep: Preis steigt über letztes Hoch und fällt dann wieder
+
+        Args:
+            df: DataFrame mit OHLC-Daten
+            lookback: Anzahl der Perioden für die Berechnung lokaler Hochs/Tiefs
+        """
+        # Initialisiere Sweep-Spalten
+        df['Bullish_Sweep'] = 0
+        df['Bearish_Sweep'] = 0
+        df['Sweep_Magnitude'] = 0
+
+        # Berechne lokale Hochs und Tiefs
+        for i in range(lookback, len(df) - 1):
+            # Lokale Tiefs und Hochs
+            local_low = df['Low'].iloc[i - lookback:i].min()
+            local_high = df['High'].iloc[i - lookback:i].max()
+
+            # Bullish Sweep: Preis fällt unter lokales Tief und steigt dann wieder
+            if df['Low'].iloc[i] < local_low and df['Close'].iloc[i + 1] > df['Close'].iloc[i]:
+                df.loc[df.index[i], 'Bullish_Sweep'] = 1
+                df.loc[df.index[i], 'Sweep_Magnitude'] = (local_low - df['Low'].iloc[i]) / local_low * 100
+
+            # Bearish Sweep: Preis steigt über lokales Hoch und fällt dann wieder
+            elif df['High'].iloc[i] > local_high and df['Close'].iloc[i + 1] < df['Close'].iloc[i]:
+                df.loc[df.index[i], 'Bearish_Sweep'] = 1
+                df.loc[df.index[i], 'Sweep_Magnitude'] = (df['High'].iloc[i] - local_high) / local_high * 100
+
+        return df
+
     # Dies ist eine angepasste Version der prepare_data_for_ml-Methode für src/data/processor.py
 
-    def prepare_data_for_ml(self, df, target_col='Close', window_size=60, test_size=0.2, scale=True):
+    def prepare_data_for_ml(self, df, target_col='Close', window_size=60, test_size=0.2, scale=True,
+                            selected_features=None):
         """
         Bereitet Daten für das ML-Modell vor mit verbesserter Skalierung und Validierungssplit.
 
@@ -170,6 +257,8 @@ class DataProcessor:
             Anteil der Daten für den Testsatz
         scale : bool
             Ob die Daten skaliert werden sollen
+        selected_features : list
+            Liste ausgewählter Features. Wenn None, werden Standardfeatures verwendet.
 
         Returns:
         --------
@@ -189,15 +278,15 @@ class DataProcessor:
 
         print(f"DataFrame nach NaN-Behandlung: {df_ml.shape}")
 
-        # Feature-Auswahl - Reduziert auf die wichtigsten Features zur Vermeidung von Overfitting
-        # Entferne stark korrelierte Features
-        essential_features = ['Open', 'High', 'Low', 'Close', 'Volume']
-
-        # Reduzierte Anzahl technischer Indikatoren
-        technical_features = ['SMA_20', 'EMA_9', 'RSI', 'MACD', 'BB_Upper', 'BB_Lower']
-
-        # Kombinierte Feature-Liste
-        features = essential_features + technical_features
+        # Feature-Auswahl - Verwende entweder ausgewählte Features oder Standard-Features
+        if selected_features is None:
+            # Standardmäßige Feature-Auswahl
+            essential_features = ['Open', 'High', 'Low', 'Close', 'Volume']
+            technical_features = ['SMA_20', 'EMA_9', 'RSI', 'MACD', 'BB_Middle', 'BB_Upper', 'BB_Lower']
+            features = essential_features + technical_features
+        else:
+            # Verwende die vom Benutzer ausgewählten Features
+            features = selected_features
 
         # Prüfe, ob alle Features vorhanden sind
         available_features = [f for f in features if f in df_ml.columns]
@@ -261,7 +350,7 @@ class DataProcessor:
 
     # Füge diese neue Funktion hinzu, um Trainingsdaten für höhere Robustheit zu erweitern
 
-    def augment_time_series(X, y, noise_level=0.005, shift_max=2):
+    def augment_time_series(self, X, y, noise_level=0.005, shift_max=2):
         """
         Erweitert Zeitreihendaten durch Hinzufügen von leichtem Rauschen und Verschiebungen.
 
@@ -333,3 +422,28 @@ class DataProcessor:
         signals_df['Signal'] = signals
 
         return signals_df
+
+    def get_available_features(self):
+        """
+        Gibt eine Liste aller verfügbaren Features für das ML-Modell zurück.
+        Diese Methode ist nützlich für die GUI-Feature-Auswahl.
+
+        Returns:
+        --------
+        dict
+            Dictionary mit Feature-Kategorien und den zugehörigen Features
+        """
+        feature_categories = {
+            "Basisdaten": ["Open", "High", "Low", "Close", "Volume"],
+            "Trend": ["SMA_9", "SMA_20", "SMA_50", "SMA_200", "EMA_9", "EMA_20"],
+            "Momentum": ["RSI", "MACD", "MACD_Signal", "MACD_Hist", "STOCH_k", "STOCH_d"],
+            "Volatilität": ["BB_Middle", "BB_Upper", "BB_Lower", "ATR"],
+            "Volumen": ["OBV"],
+            "Marktstruktur": [
+                "Bullish_FVG", "Bearish_FVG", "FVG_Size",
+                "Inv_Bullish_FVG", "Inv_Bearish_FVG", "Inv_FVG_Size",
+                "Bullish_Sweep", "Bearish_Sweep", "Sweep_Magnitude"
+            ]
+        }
+
+        return feature_categories

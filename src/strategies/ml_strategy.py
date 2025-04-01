@@ -5,7 +5,7 @@ from src.utils.helpers import prepare_dataframe
 
 
 class MLStrategy(BaseStrategy):
-    def __init__(self, model, scaler, window_size=60, threshold=0.005):
+    def __init__(self, model, scaler, window_size=60, threshold=0.005, selected_features=None):
         """
         Strategie basierend auf ML-Modellvorhersagen.
 
@@ -19,12 +19,21 @@ class MLStrategy(BaseStrategy):
             Größe des Zeitfensters für Eingabedaten
         threshold : float
             Schwellenwert für Signale
+        selected_features : list
+            Liste der für das Modell ausgewählten Features.
+            Wenn None, werden Standardfeatures verwendet.
         """
         super().__init__(name="ML_Strategy")
         self.model = model
         self.scaler = scaler
         self.window_size = window_size
         self.threshold = threshold
+
+        # Standardmäßige Feature-Liste, falls keine angegeben wird
+        self.selected_features = selected_features or [
+            'Open', 'High', 'Low', 'Close', 'Volume',
+            'SMA_20', 'EMA_9', 'RSI', 'MACD', 'BB_Middle', 'BB_Upper', 'BB_Lower'
+        ]
 
     def prepare_features(self, data):
         """
@@ -43,14 +52,26 @@ class MLStrategy(BaseStrategy):
         # Daten für die Verarbeitung vorbereiten
         data = prepare_dataframe(data.copy())
 
-        # Feature-Auswahl (muss mit Training übereinstimmen)
-        features = ['Open', 'High', 'Low', 'Close', 'Volume',
-                    'SMA_20', 'EMA_9', 'RSI', 'MACD', 'MACD_Hist',
-                    'BB_Upper', 'BB_Lower', 'STOCH_k', 'ATR']
+        # Prüfe, ob die ausgewählten Features verfügbar sind
+        available_features = [f for f in self.selected_features if f in data.columns]
 
-        feature_data = data[features].values
+        # Wenn nicht alle Features verfügbar sind, gib eine Warnung aus
+        if len(available_features) < len(self.selected_features):
+            missing_features = set(self.selected_features) - set(available_features)
+            print(f"Warnung: Folgende Features fehlen: {missing_features}")
+            print(f"Verfügbare Features: {list(data.columns)}")
 
-        # Skalieren der Daten
+            # Wenn kritische Features fehlen, werfe einen Fehler
+            if len(available_features) < 5:  # Mindestens OHLCV sollten vorhanden sein
+                raise ValueError(
+                    f"Zu wenige Features verfügbar. Benötigt: {self.selected_features}, "
+                    f"Verfügbar: {available_features}"
+                )
+
+        # Extrahiere die Features
+        feature_data = data[available_features].values
+
+        # Skaliere die Daten mit dem vorhandenen Scaler
         feature_data = self.scaler.transform(feature_data)
 
         # Erstelle Sequenzen

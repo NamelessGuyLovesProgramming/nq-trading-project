@@ -12,6 +12,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 import importlib
 import glob
+from web.ml_model_ui import ml_model_ui
 
 # Füge Root-Verzeichnis zum Pfad hinzu für richtige Imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -70,7 +71,7 @@ with st.sidebar:
     st.header("Hauptaktionen")
     action = st.radio(
         "Wählen Sie eine Aktion:",
-        ["Daten laden", "ML-Modell trainieren", "Backtest durchführen", "Visualisieren"]
+        ["Daten laden", "ML-Modell trainieren", "Backtest durchführen", "Visualisieren", "ML-Modell-Verwaltung"]  # Neuer Menüpunkt
     )
 
     st.header("Datenparameter")
@@ -330,6 +331,27 @@ def run_backtest():
                     format="%.3f"
                 )
                 window_size = WINDOW_SIZE  # Verwende den gleichen Wert wie beim Training
+    if strategy_type == "ml":
+        # Überprüfe, ob ein Modell in der Session vorhanden ist
+        if hasattr(st.session_state, 'ml_model') and hasattr(st.session_state, 'ml_scaler'):
+            model = st.session_state.ml_model
+            scaler = st.session_state.ml_scaler
+            metadata = st.session_state.ml_metadata if hasattr(st.session_state, 'ml_metadata') else None
+
+            # Verwende die Features des geladenen Modells, falls verfügbar
+            selected_features = metadata.get('features') if metadata else None
+
+            # Erstelle ML-Strategie mit dem geladenen Modell
+            strategy = MLStrategy(
+                model,
+                scaler,
+                window_size=window_size,
+                threshold=ml_threshold,
+                selected_features=selected_features
+            )
+        else:
+            print()
+    # Bestehender Code für den Fall, dass kein Modell geladen ist
 
     elif strategy_type == "mean_reversion":
         with strategy_params:
@@ -853,6 +875,9 @@ def main():
         run_backtest()
     elif action == "Visualisieren":
         visualize_data()
+    elif action == "ML-Modell-Verwaltung":  # Neue Bedingung
+        # Übergebe die geladenen Daten an die UI
+        ml_model_ui(st.session_state.data if 'data' in st.session_state else None)
 
 
 # App ausführen
