@@ -71,7 +71,10 @@ with st.sidebar:
     st.header("Hauptaktionen")
     action = st.radio(
         "Wählen Sie eine Aktion:",
-        ["Daten laden", "ML-Modell trainieren", "Backtest durchführen", "Visualisieren", "ML-Modell-Verwaltung"]  # Neuer Menüpunkt
+        ["Daten laden",
+         "ML-Modell-Verwaltung",  # Einzelner Einstiegspunkt für alle ML-Funktionen
+         "Backtest durchführen",
+         "Visualisieren"]
     )
 
     st.header("Datenparameter")
@@ -86,6 +89,11 @@ with st.sidebar:
         ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"],
         index=0  # Default ist 1m
     )
+
+    # Speichere Parameter im Session-State für ML-Modelltraining
+    st.session_state.symbol = symbol
+    st.session_state.period = period
+    st.session_state.interval = interval
 
     # Warnung für unvereinbare Kombinationen
     if interval == "1m" and period not in ["1d", "5d"]:
@@ -869,16 +877,14 @@ def main():
     # Aktionen basierend auf ausgewähltem Tab
     if action == "Daten laden":
         load_data()
-    elif action == "ML-Modell trainieren":
-        train_model()
+    elif action == "ML-Modell-Verwaltung":
+        # ML-Modell-Verwaltung aufrufen ohne Daten zu erfordern
+        # Daten werden nur für Training benötigt
+        ml_model_ui(st.session_state.data if 'data' in st.session_state else None)
     elif action == "Backtest durchführen":
         run_backtest()
     elif action == "Visualisieren":
         visualize_data()
-    elif action == "ML-Modell-Verwaltung":  # Neue Bedingung
-        # Übergebe die geladenen Daten an die UI
-        ml_model_ui(st.session_state.data if 'data' in st.session_state else None)
-
 
 # App ausführen
 if __name__ == "__main__":

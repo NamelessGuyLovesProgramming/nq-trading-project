@@ -1,5 +1,3 @@
-# Ersetzen Sie den bestehenden Code in web/ml_model_ui.py mit diesem Code
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -96,6 +94,14 @@ def scan_for_orphaned_models(models_dir='output/models'):
                     "trades": 0,
                     "win_rate": 0.0,
                     "sharpe_ratio": 0.0
+                },
+                # Platzhalter für Datenquelle
+                "data_source": {
+                    "symbol": "Unbekannt",
+                    "period": "Unbekannt",
+                    "interval": "Unbekannt",
+                    "data_points": 0,
+                    "date_range": "Unbekannt"
                 }
             }
 
@@ -106,7 +112,7 @@ def scan_for_orphaned_models(models_dir='output/models'):
             created_metadata.append(metadata_path)
 
         except Exception as e:
-            st.error(f"Fehler beim Erstellen von Metadaten für {model_file}: {e}")
+            print(f"Fehler beim Erstellen von Metadaten für {model_file}: {e}")
             traceback.print_exc()
 
     return created_metadata
@@ -121,29 +127,23 @@ def ml_model_ui(data=None):
     data : pd.DataFrame, optional
         DataFrame mit OHLCV-Daten und Indikatoren
     """
-    st.header("ML-Modell Training und Verwaltung")
+    st.header("ML-Modell-Verwaltung")
 
     # Initialisiere den ModelManager
     model_manager = ModelManager()
     processor = DataProcessor()
 
-    # Suche nach Modellen ohne Metadaten
-    if st.sidebar.button("Nach unbeschriebenen Modellen suchen"):
-        with st.spinner("Suche und erstelle Metadaten..."):
-            created_files = scan_for_orphaned_models()
-            if created_files:
-                st.success(f"{len(created_files)} Metadatendateien erstellt!")
-            else:
-                st.sidebar.info("Keine unbeschriebenen Modelle gefunden.")
+    # Automatisch nach Modellen suchen beim Start (ohne Button)
+    with st.spinner("Suche nach Modellen..."):
+        created_files = scan_for_orphaned_models()
+        if created_files:
+            st.success(f"{len(created_files)} neue Metadatendateien erstellt!")
 
-    # Prüfe, ob Daten geladen sind
-    if data is None:
-        st.warning(
-            "⚠️ Bitte laden Sie zuerst Daten auf der 'Daten laden'-Seite, um das volle Potenzial dieses Tools zu nutzen.")
-        no_data_warning = st.expander("Kann ich trotzdem weiterarbeiten?")
-        with no_data_warning:
-            st.write(
-                "Ja, Sie können bestehende Modelle in der Modellverwaltung verwalten und anzeigen, aber die meisten Funktionen erfordern geladene Daten.")
+    # Sekundäres Menü für ML-Funktionen
+    ml_action = st.radio(
+        "Wählen Sie eine ML-Funktion:",
+        ["Modell trainieren", "Modelle verwalten", "Modelldetails", "Backtest-Ergebnisse"]
+    )
 
     # Zeige verfügbare Features an
     if data is not None:
@@ -151,6 +151,16 @@ def ml_model_ui(data=None):
         all_features = []
         for cat, feats in feature_categories.items():
             all_features.extend(feats)
+
+        # Erfasse Datenbeschreibung für Modell-Metadaten
+        data_source = {
+            "symbol": st.session_state.get("symbol", "Unknown"),
+            "period": st.session_state.get("period", "Unknown"),
+            "interval": st.session_state.get("interval", "Unknown"),
+            "data_points": len(data),
+            "date_range": f"{data.index[0].strftime('%Y-%m-%d %H:%M')} bis {data.index[-1].strftime('%Y-%m-%d %H:%M')}"
+            if isinstance(data.index, pd.DatetimeIndex) else "Unbekannt"
+        }
     else:
         feature_categories = {
             "Basisdaten": ["Open", "High", "Low", "Close", "Volume"],
@@ -163,153 +173,142 @@ def ml_model_ui(data=None):
         all_features = []
         for cat, feats in feature_categories.items():
             all_features.extend(feats)
+        data_source = None
 
-    # Tabs für verschiedene Modell-Funktionen
-    tab1, tab2, tab3, tab4 = st.tabs(["Modell trainieren", "Modelle verwalten", "Modelldetails", "Backtest-Ergebnisse"])
-
-    # Tab 1: Modell trainieren
-    with tab1:
+    # Funktionen basierend auf Auswahl
+    if ml_action == "Modell trainieren":
         st.subheader("Neues Modell trainieren")
 
         if data is None:
-            st.warning("Bitte laden Sie erst Daten, um ein neues Modell zu trainieren.")
-            return
+            st.warning("Bitte laden Sie erst Daten auf der 'Daten laden'-Seite, um ein neues Modell zu trainieren.")
+        else:
+            # Modellname
+            model_name = st.text_input("Modellname", value=f"Model_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
 
-        # Modellname
-        model_name = st.text_input("Modellname", value=f"Model_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+            # Feature-Auswahl mit Kategorien
+            st.write("### Feature-Auswahl")
 
-        # Feature-Auswahl mit Kategorien
-        st.write("### Feature-Auswahl")
+            # Ein Expander für jede Feature-Kategorie
+            selected_features = []
 
-        # Ein Expander für jede Feature-Kategorie
-        selected_features = []
+            for category, features in feature_categories.items():
+                with st.expander(f"{category} ({len(features)} Features)",
+                                 expanded=True if category == "Basisdaten" else False):
+                    # Prüfe, welche Features tatsächlich in den Daten verfügbar sind
+                    available_features = [f for f in features if f in data.columns]
+                    unavailable = [f for f in features if f not in data.columns]
 
-        for category, features in feature_categories.items():
-            with st.expander(f"{category} ({len(features)} Features)",
-                             expanded=True if category == "Basisdaten" else False):
-                # Prüfe, welche Features tatsächlich in den Daten verfügbar sind
-                available_features = [f for f in features if f in data.columns]
-                unavailable = [f for f in features if f not in data.columns]
+                    if unavailable:
+                        st.warning(f"⚠️ Folgende Features sind nicht verfügbar: {', '.join(unavailable)}")
 
-                if unavailable:
-                    st.warning(f"⚠️ Folgende Features sind nicht verfügbar: {', '.join(unavailable)}")
+                    # Standardmäßig ausgewählte Features
+                    default_selections = []
+                    if category == "Basisdaten":
+                        default_selections = available_features  # Immer alle Basisdaten auswählen
+                    elif category == "Trend":
+                        default_selections = ["SMA_20", "EMA_9"] if all(
+                            f in available_features for f in ["SMA_20", "EMA_9"]) else []
+                    elif category == "Momentum":
+                        default_selections = ["RSI", "MACD"] if all(
+                            f in available_features for f in ["RSI", "MACD"]) else []
+                    elif category == "Volatilität":
+                        default_selections = ["BB_Middle", "BB_Upper", "BB_Lower"] if all(
+                            f in available_features for f in ["BB_Middle", "BB_Upper", "BB_Lower"]) else []
 
-                # Standardmäßig ausgewählte Features
-                default_selections = []
-                if category == "Basisdaten":
-                    default_selections = available_features  # Immer alle Basisdaten auswählen
-                elif category == "Trend":
-                    default_selections = ["SMA_20", "EMA_9"] if all(
-                        f in available_features for f in ["SMA_20", "EMA_9"]) else []
-                elif category == "Momentum":
-                    default_selections = ["RSI", "MACD"] if all(
-                        f in available_features for f in ["RSI", "MACD"]) else []
-                elif category == "Volatilität":
-                    default_selections = ["BB_Middle", "BB_Upper", "BB_Lower"] if all(
-                        f in available_features for f in ["BB_Middle", "BB_Upper", "BB_Lower"]) else []
-
-                # MultiSelect für diese Kategorie
-                category_selection = st.multiselect(
-                    f"Wähle {category}-Features:",
-                    options=available_features,
-                    default=default_selections
-                )
-
-                selected_features.extend(category_selection)
-
-        # Zeige die Gesamtzahl der ausgewählten Features an
-        st.info(f"Insgesamt ausgewählt: {len(selected_features)} Features")
-
-        # Wenn keine Features ausgewählt sind, zeige Warnung
-        if not selected_features:
-            st.warning("⚠️ Bitte wählen Sie mindestens einige Features aus.")
-
-        # Trainingsparameter
-        st.write("### Trainingsparameter")
-        col1, col2 = st.columns(2)
-
-        with col1:
-            window_size = st.slider("Fenstergröße", min_value=10, max_value=120, value=60, step=5,
-                                    help="Anzahl der vergangenen Zeitschritte für die Vorhersage")
-            epochs = st.slider("Trainingsepochen", min_value=10, max_value=200, value=50, step=10,
-                               help="Maximale Anzahl der Trainingsdurchläufe")
-
-        with col2:
-            batch_size = st.slider("Batch-Größe", min_value=8, max_value=128, value=32, step=8,
-                                   help="Anzahl der Samples pro Batch während des Trainings")
-            test_size = st.slider("Testdaten-Anteil", min_value=0.1, max_value=0.5, value=0.2, step=0.05,
-                                  help="Anteil der Daten, der für das Testen verwendet wird")
-
-        # Training starten
-        if st.button("Modell trainieren", disabled=len(selected_features) == 0):
-            with st.spinner("Modell wird trainiert..."):
-                try:
-                    # Progress-Bar
-                    progress_bar = st.progress(0)
-
-                    # Starte Training (mit manueller Fortschrittsanzeige)
-                    metadata = model_manager.train_model(
-                        data=data,
-                        model_name=model_name,
-                        selected_features=selected_features,
-                        window_size=window_size,
-                        epochs=epochs,
-                        batch_size=batch_size,
-                        test_size=test_size
+                    # MultiSelect für diese Kategorie
+                    category_selection = st.multiselect(
+                        f"Wähle {category}-Features:",
+                        options=available_features,
+                        default=default_selections
                     )
 
-                    # Training abgeschlossen
-                    progress_bar.progress(1.0)
+                    selected_features.extend(category_selection)
 
-                    # Zeige Ergebnisse
-                    st.success(f"✅ Modell '{model_name}' erfolgreich trainiert!")
+            # Zeige die Gesamtzahl der ausgewählten Features an
+            st.info(f"Insgesamt ausgewählt: {len(selected_features)} Features")
 
-                    st.write("### Trainingsmetriken")
-                    metrics = metadata.get("metrics", {})
-                    metrics_df = pd.DataFrame({
-                        "Metrik": ["MSE", "RMSE", "MAE", "MAPE"],
-                        "Wert": [
-                            f"{metrics.get('mse', 0):.6f}",
-                            f"{metrics.get('rmse', 0):.6f}",
-                            f"{metrics.get('mae', 0):.6f}",
-                            f"{metrics.get('mape', 0):.2f}%" if metrics.get('mape') is not None else "N/A"
-                        ]
-                    })
-                    st.table(metrics_df)
+            # Wenn keine Features ausgewählt sind, zeige Warnung
+            if not selected_features:
+                st.warning("⚠️ Bitte wählen Sie mindestens einige Features aus.")
 
-                    # Modellzusammenfassung
-                    st.write("### Modellübersicht")
-                    st.json({
-                        "name": metadata.get("name", model_name),
-                        "created_at": metadata.get("created_at", datetime.now().isoformat()),
-                        "window_size": metadata.get("window_size", window_size),
-                        "features": metadata.get("features", selected_features),
-                        "training_samples": metadata.get("training_samples", 0),
-                        "testing_samples": metadata.get("testing_samples", 0)
-                    })
+            # Trainingsparameter
+            st.write("### Trainingsparameter")
+            col1, col2 = st.columns(2)
 
-                except Exception as e:
-                    st.error(f"❌ Fehler beim Training: {str(e)}")
-                    st.exception(e)
+            with col1:
+                window_size = st.slider("Fenstergröße", min_value=10, max_value=120, value=60, step=5,
+                                        help="Anzahl der vergangenen Zeitschritte für die Vorhersage")
+                epochs = st.slider("Trainingsepochen", min_value=10, max_value=200, value=50, step=10,
+                                   help="Maximale Anzahl der Trainingsdurchläufe")
 
-    # Tab 2: Modelle verwalten
-    with tab2:
+            with col2:
+                batch_size = st.slider("Batch-Größe", min_value=8, max_value=128, value=32, step=8,
+                                       help="Anzahl der Samples pro Batch während des Trainings")
+                test_size = st.slider("Testdaten-Anteil", min_value=0.1, max_value=0.5, value=0.2, step=0.05,
+                                      help="Anteil der Daten, der für das Testen verwendet wird")
+
+            # Training starten
+            if st.button("Modell trainieren", disabled=len(selected_features) == 0):
+                with st.spinner("Modell wird trainiert..."):
+                    try:
+                        # Progress-Bar
+                        progress_bar = st.progress(0)
+
+                        # Starte Training (mit manueller Fortschrittsanzeige)
+                        metadata = model_manager.train_model(
+                            data=data,
+                            model_name=model_name,
+                            selected_features=selected_features,
+                            window_size=window_size,
+                            epochs=epochs,
+                            batch_size=batch_size,
+                            test_size=test_size,
+                            data_source=data_source  # Neue Information über Trainingsquellen
+                        )
+
+                        # Training abgeschlossen
+                        progress_bar.progress(1.0)
+
+                        # Zeige Ergebnisse
+                        st.success(f"✅ Modell '{model_name}' erfolgreich trainiert!")
+
+                        st.write("### Trainingsmetriken")
+                        metrics = metadata.get("metrics", {})
+                        metrics_df = pd.DataFrame({
+                            "Metrik": ["MSE", "RMSE", "MAE", "MAPE"],
+                            "Wert": [
+                                f"{metrics.get('mse', 0):.6f}",
+                                f"{metrics.get('rmse', 0):.6f}",
+                                f"{metrics.get('mae', 0):.6f}",
+                                f"{metrics.get('mape', 0):.2f}%" if metrics.get('mape') is not None else "N/A"
+                            ]
+                        })
+                        st.table(metrics_df)
+
+                        # Modellzusammenfassung
+                        st.write("### Modellübersicht")
+                        st.json({
+                            "name": metadata.get("name", model_name),
+                            "created_at": metadata.get("created_at", datetime.now().isoformat()),
+                            "window_size": metadata.get("window_size", window_size),
+                            "features": metadata.get("features", selected_features),
+                            "training_samples": metadata.get("training_samples", 0),
+                            "testing_samples": metadata.get("testing_samples", 0),
+                            "data_source": metadata.get("data_source", data_source)
+                        })
+
+                    except Exception as e:
+                        st.error(f"❌ Fehler beim Training: {str(e)}")
+                        st.exception(e)
+
+    elif ml_action == "Modelle verwalten":
         st.subheader("Verfügbare Modelle")
 
         # Lade verfügbare Modelle
         models = model_manager.list_available_models()
 
-        # Hilfstext für unbeschriebene Modelle
-        has_h5_files = any(
-            f.endswith('.h5') for f in os.listdir('output/models') if os.path.isfile(os.path.join('output/models', f)))
-
-        if not models and has_h5_files:
-            st.warning(
-                "Es wurden vorhandene .h5 Modelldateien gefunden, aber keine Metadaten. Klicken Sie auf 'Nach unbeschriebenen Modellen suchen' in der Seitenleiste, um Metadaten für diese Modelle zu erstellen.")
-
         if not models:
-            st.info(
-                "Keine Modelle gefunden. Trainieren Sie zuerst ein Modell oder suchen Sie nach unbeschriebenen Modellen.")
+            st.info("Keine Modelle gefunden. Trainieren Sie zuerst ein Modell.")
         else:
             # Erstelle eine übersichtliche Tabelle der Modelle
             models_df = pd.DataFrame([
@@ -319,6 +318,9 @@ def ml_model_ui(data=None):
                     "Features": len(model.get("features", [])),
                     "Window Size": model.get("window_size", 0),
                     "RMSE": round(model.get("metrics", {}).get("rmse", 0), 6),
+                    "Symbol": model.get("data_source", {}).get("symbol", "Unbekannt"),
+                    "Zeitraum": model.get("data_source", {}).get("period", "Unbekannt"),
+                    "Intervall": model.get("data_source", {}).get("interval", "Unbekannt"),
                     "Aktionen": model.get("name", "")
                 }
                 for model in models
@@ -359,13 +361,11 @@ def ml_model_ui(data=None):
 
             with col3:
                 if st.button("Details anzeigen", key="show_details"):
-                    # Wechsle zum Detailtab
-                    # Kann in Streamlit nur über Session-State oder URL-Parameter umgesetzt werden
+                    # Speichere die Auswahl im Session-State und wechsle zum Detailtab
                     st.session_state.selected_model_for_details = selected_model
-                    st.info(f"Details für '{selected_model}' werden im Tab 'Modelldetails' angezeigt.")
+                    st.info(f"Details für '{selected_model}' werden angezeigt. Bitte wechseln Sie zu 'Modelldetails'.")
 
-    # Tab 3: Modelldetails
-    with tab3:
+    elif ml_action == "Modelldetails":
         st.subheader("Modelldetails")
 
         # Wähle entweder das vorausgewählte Modell oder zeige Dropdown
@@ -421,6 +421,16 @@ def ml_model_ui(data=None):
                     if 'parameters' in model_info and 'total_params' in model_info.get('parameters', {}):
                         st.write(f"**Modellparameter:** {model_info.get('parameters', {}).get('total_params', 0):,}")
 
+                # Datenquellen-Informationen, falls vorhanden
+                if 'data_source' in model_info and model_info['data_source']:
+                    data_src = model_info.get('data_source', {})
+                    st.write("### Trainingsquellen")
+                    st.write(f"**Symbol:** {data_src.get('symbol', 'Unbekannt')}")
+                    st.write(f"**Zeitraum:** {data_src.get('period', 'Unbekannt')}")
+                    st.write(f"**Intervall:** {data_src.get('interval', 'Unbekannt')}")
+                    st.write(f"**Datenpunkte:** {data_src.get('data_points', 0):,}")
+                    st.write(f"**Zeitbereich:** {data_src.get('date_range', 'Unbekannt')}")
+
                 # Metriken
                 st.write("### Trainingsmetriken")
                 metrics = model_info.get("metrics", {})
@@ -453,11 +463,16 @@ def ml_model_ui(data=None):
                     })
                     st.table(bt_metrics_df)
 
-                # Verwendete Features
+                # Verwendete Features - immer alle anzeigen
                 st.write("### Verwendete Features")
                 features = model_info.get("features", [])
 
                 if features:
+                    # Einfach alle Features direkt anzeigen, ohne sie zu verstecken
+                    st.write(", ".join(features))
+
+                    # Für die zusätzliche kategorisierte Ansicht
+                    st.write("#### Features nach Kategorien")
                     # Gruppiere Features nach Kategorien für bessere Übersicht
                     feature_by_category = {}
                     unknown_features = []
@@ -478,28 +493,26 @@ def ml_model_ui(data=None):
                     # Zeige Features nach Kategorien
                     for category, cat_features in feature_by_category.items():
                         if cat_features:
-                            with st.expander(f"{category} ({len(cat_features)} Features)",
-                                             expanded=category == "Basisdaten"):
+                            with st.expander(f"{category} ({len(cat_features)} Features)", expanded=True):
                                 st.write(", ".join(cat_features))
 
                     # Zeige nicht-kategorisierte Features
                     if unknown_features:
-                        with st.expander(f"Sonstige Features ({len(unknown_features)})"):
+                        with st.expander(f"Sonstige Features ({len(unknown_features)})", expanded=True):
                             st.write(", ".join(unknown_features))
                 else:
                     st.warning("Keine Feature-Informationen verfügbar.")
 
                 # Zeige Modellarchitektur (falls vorhanden)
                 if 'parameters' in model_info and 'layers' in model_info.get('parameters', {}):
-                    with st.expander("Modellarchitektur", expanded=False):
+                    with st.expander("Modellarchitektur", expanded=True):
                         layers = model_info.get('parameters', {}).get('layers', [])
                         for i, layer in enumerate(layers):
                             st.write(f"{i + 1}. {layer}")
             else:
                 st.warning(f"Keine Details für Modell '{selected_detail_model}' gefunden")
 
-    # Tab 4: Backtest-Ergebnisse
-    with tab4:
+    elif ml_action == "Backtest-Ergebnisse":
         st.subheader("Backtest-Ergebnisse aktualisieren")
 
         # Wähle ein Modell aus
@@ -582,33 +595,9 @@ def ml_model_ui(data=None):
                 # Hilfe-Text
                 with st.expander("Wie führe ich einen Backtest durch?"):
                     st.write("""
-                    1. Gehen Sie zum Tab 'Backtest durchführen'
+                    1. Gehen Sie zum Hauptaktionsmenü auf 'Backtest durchführen'
                     2. Wählen Sie Ihre Strategie ('ml' für das ML-Modell)
                     3. Wenn Sie 'ml' wählen, laden Sie das Modell unter 'Modelle verwalten'
                     4. Führen Sie den Backtest durch
                     5. Kommen Sie hierher zurück, um die Ergebnisse zu speichern
                     """)
-
-
-if __name__ == "__main__":
-    # Dummy-Daten für Test
-    import numpy as np
-
-    # Erstelle Dummy-DataFrame
-    dates = pd.date_range(start='2023-01-01', periods=1000, freq='1h')
-    data = pd.DataFrame({
-        'Open': np.random.normal(100, 5, 1000),
-        'High': np.random.normal(105, 5, 1000),
-        'Low': np.random.normal(95, 5, 1000),
-        'Close': np.random.normal(100, 5, 1000),
-        'Volume': np.random.normal(1000, 200, 1000)
-    }, index=dates)
-
-    # Füge ein paar technische Indikatoren hinzu
-    data['SMA_20'] = data['Close'].rolling(window=20).mean()
-    data['EMA_9'] = data['Close'].ewm(span=9, adjust=False).mean()
-    data['RSI'] = np.random.normal(50, 15, 1000)
-
-    # Streamlit App
-    st.set_page_config(page_title="ML-Modell UI Test", layout="wide")
-    ml_model_ui(data)
