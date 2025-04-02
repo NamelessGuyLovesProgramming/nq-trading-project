@@ -8,7 +8,6 @@ from sklearn.preprocessing import MinMaxScaler
 
 from src.data.processor import DataProcessor
 from src.models.lstm import LSTMModel
-from src.models.model_manager import ModelManager, scan_for_orphaned_models
 
 class ModelManager:
     """

@@ -38,7 +38,17 @@ class DataProcessor:
 
         # Fehlende Werte füllen für robustere Indikatorberechnung
         # Zuerst linear interpolieren
-        ohlc_df = ohlc_df.infer_objects(copy=False).interpolate(method='linear')
+        # Konvertiere erst numerische Spalten
+        for col in ohlc_df.select_dtypes(include=['float64', 'int64']).columns:
+            ohlc_df[col] = ohlc_df[col].interpolate(method='linear')
+        # Dann behandle andere Spalten separat, falls nötig
+        for col in ohlc_df.select_dtypes(exclude=['float64', 'int64']).columns:
+            if col not in ['Date', 'Time']:  # Ignoriere Datums-/Zeitspalten
+                try:
+                    ohlc_df[col] = pd.to_numeric(ohlc_df[col], errors='coerce')
+                    ohlc_df[col] = ohlc_df[col].interpolate(method='linear')
+                except:
+                    pass  # Ignoriere Fehler für nicht-numerische Spalten
         # Versuchen Sie diese Lösung
         # Konvertiere erst numerische Spalten
         for col in ohlc_df.select_dtypes(include=['float64', 'int64']).columns:
@@ -171,21 +181,21 @@ class DataProcessor:
         - Inverse Bearish FVG: Low[i-1] > High[i] und Low[i-1] > High[i-2]
         """
         # Initialisiere die Spalten für reguläre FVGs
-        df['Bullish_FVG'] = 0
-        df['Bearish_FVG'] = 0
-        df['FVG_Size'] = 0
+        df['Bullish_FVG'] = 0.0  # Verwende float statt int
+        df['Bearish_FVG'] = 0.0
+        df['FVG_Size'] = 0.0  # Wichtig: als float initialisieren
 
         # Initialisiere die Spalten für inverse FVGs
-        df['Inv_Bullish_FVG'] = 0
-        df['Inv_Bearish_FVG'] = 0
-        df['Inv_FVG_Size'] = 0
+        df['Inv_Bullish_FVG'] = 0.0
+        df['Inv_Bearish_FVG'] = 0.0
+        df['Inv_FVG_Size'] = 0.0  # Als float initialisieren
 
         # Berechne FVGs und inverse FVGs
         for i in range(2, len(df)):
             # Reguläre FVGs
             if df['Low'].iloc[i] > df['High'].iloc[i - 2]:
                 df.loc[df.index[i], 'Bullish_FVG'] = 1
-                df.loc[df.index[i], 'FVG_Size'] = df['Low'].iloc[i] - df['High'].iloc[i - 2]
+                df.loc[df.index[i], 'FVG_Size'] = float(df['Low'].iloc[i] - df['High'].iloc[i - 2])
 
             elif df['High'].iloc[i] < df['Low'].iloc[i - 2]:
                 df.loc[df.index[i], 'Bearish_FVG'] = 1
@@ -199,8 +209,8 @@ class DataProcessor:
 
             elif df['Low'].iloc[i - 1] > df['High'].iloc[i] and df['Low'].iloc[i - 1] > df['High'].iloc[i - 2]:
                 df.loc[df.index[i], 'Inv_Bearish_FVG'] = 1
-                df.loc[df.index[i], 'Inv_FVG_Size'] = df['Low'].iloc[i - 1] - max(df['High'].iloc[i],
-                                                                                  df['High'].iloc[i - 2])
+                df.loc[df.index[i], 'Inv_FVG_Size'] = float(
+                    df['Low'].iloc[i - 1] - max(df['High'].iloc[i], df['High'].iloc[i - 2]))
 
         return df
 

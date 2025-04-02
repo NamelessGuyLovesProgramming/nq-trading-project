@@ -129,10 +129,10 @@ def ml_model_ui(data=None):
 
     # Suche nach Modellen ohne Metadaten
     if st.sidebar.button("Nach unbeschriebenen Modellen suchen"):
-        with st.sidebar.spinner("Suche und erstelle Metadaten..."):
+        with st.spinner("Suche und erstelle Metadaten..."):
             created_files = scan_for_orphaned_models()
             if created_files:
-                st.sidebar.success(f"{len(created_files)} Metadatendateien erstellt!")
+                st.success(f"{len(created_files)} Metadatendateien erstellt!")
             else:
                 st.sidebar.info("Keine unbeschriebenen Modelle gefunden.")
 
