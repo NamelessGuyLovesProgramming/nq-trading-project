@@ -8,10 +8,6 @@ import tensorflow as tf
 from src.custom_html_writer import write_html_with_custom_interaction
 from web.custom_chart_component import create_candlestick_chart, create_backtest_chart, downsample_data, \
     filter_weekend_days
-import plotly.graph_objects as go
-from datetime import datetime
-import importlib
-import glob
 from web.ml_model_ui import ml_model_ui
 
 # Füge Root-Verzeichnis zum Pfad hinzu für richtige Imports
@@ -21,6 +17,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.data.fetcher import DataFetcher
 from src.data.processor import DataProcessor
 from src.models.lstm import LSTMModel
+from src.models.model_evaluation import evaluate_model_quality, explain_metrics_in_plain_language, explain_model_architecture
+import glob
 from src.backtesting.engine import BacktestEngine
 from src.backtesting.metrics import calculate_performance_metrics
 from src.visualization.charts import ChartVisualizer
@@ -33,6 +31,7 @@ from src.strategies.volume_profile import VolumeProfileStrategy
 from src.strategies.market_regime import MarketRegimeStrategy
 from src.strategies.ensemble import EnsembleStrategy
 from src.strategies.risk_managed import RiskManagedStrategy
+
 
 # Konstanten aus config
 from config import (
@@ -107,6 +106,36 @@ with st.sidebar:
 def load_data():
     st.header("Daten laden")
 
+    # Option zum automatischen Laden aller Dateien
+    load_all_files = st.checkbox("Alle CSV-Dateien aus dem data/raw Verzeichnis laden", value=False)
+
+    if load_all_files:
+        # Verzeichnis-Pfade
+        default_path = "data/raw"
+        windows_path = r"C:\Users\Buro\pythonProject\nq-trading-project\data\raw"
+
+        # Option zum Überschreiben des Verzeichnispfads
+        custom_path = st.text_input(
+            "Verzeichnispfad (optional)",
+            value=windows_path if os.path.exists(windows_path) else default_path,
+            help="Pfad zum Verzeichnis, das alle CSV-Dateien enthält"
+        )
+
+        # Info-Box über gefundene Dateien anzeigen
+        if os.path.exists(custom_path):
+            csv_files = glob.glob(os.path.join(custom_path, "*.csv"))
+            if csv_files:
+                st.info(f"{len(csv_files)} CSV-Dateien im Verzeichnis gefunden.")
+            else:
+                st.warning(f"Keine CSV-Dateien im Verzeichnis '{custom_path}' gefunden.")
+        else:
+            st.error(f"Verzeichnis '{custom_path}' existiert nicht!")
+
+    # Die bisherigen Optionen für einzelne Dateien
+    else:
+        st.write("Standard-Datenladung:")
+        # Bestehende Felder für Symbol, Period, Interval, custom_file und combine_all_years bleiben erhalten
+
     # Füge einen Knopf hinzu, um den Ladevorgang zu starten
     if st.button("Daten laden starten"):
         with st.spinner("Daten werden geladen..."):
@@ -115,7 +144,11 @@ def load_data():
                 fetcher = DataFetcher(symbol=symbol)
 
                 # Lade Daten basierend auf den Parametern
-                if combine_all_years:
+                if load_all_files:
+                    # Verwende die neue Methode zum Laden aller Dateien
+                    data = fetcher.load_all_files_from_directory(custom_path)
+                    st.success(f"Alle CSV-Dateien aus '{custom_path}' wurden geladen.")
+                elif combine_all_years:
                     data = fetcher.load_custom_file("nq-1m*.csv")
                     st.success("Alle nq-1m* Dateien wurden kombiniert und geladen.")
                 elif custom_file:
@@ -138,6 +171,14 @@ def load_data():
                 st.write(f"Datenzeitraum: {data.index[0]} bis {data.index[-1]}")
                 st.write(f"Anzahl der Datenpunkte: {len(data)}")
 
+                # Quell-Dateien anzeigen, falls vorhanden
+                if hasattr(data, 'attrs') and 'source_files' in data.attrs:
+                    source_files = data.attrs['source_files']
+                    if len(source_files) <= 5:
+                        st.write(f"Quelldateien: {', '.join(source_files)}")
+                    else:
+                        st.write(f"Quelldateien: {', '.join(source_files[:3])} und {len(source_files) - 3} weitere...")
+
                 # Füge technische Indikatoren hinzu
                 processor = DataProcessor()
                 data_with_indicators = processor.add_technical_indicators(data)
@@ -146,8 +187,19 @@ def load_data():
                 st.subheader("Datenübersicht (erste 5 Zeilen)")
                 st.dataframe(data_with_indicators.head())
 
-                # Speichere in Session-State
+                # Speichere in Session-State einschließlich der Quellinformationen
                 st.session_state.data = data_with_indicators
+
+                # Symbol, Periode und Intervall speichern (wenn sie nicht aus den Attributen kommen)
+                if not load_all_files:
+                    st.session_state.symbol = symbol
+                    st.session_state.period = period
+                    st.session_state.interval = interval
+                else:
+                    # Bei mehreren Dateien allgemeine Bezeichnungen verwenden
+                    st.session_state.symbol = "Multiple"
+                    st.session_state.period = "Custom"
+                    st.session_state.interval = "Mixed"
 
                 return data_with_indicators
 
@@ -165,10 +217,17 @@ def load_data():
             st.write(f"Datenzeitraum: {st.session_state.data.index[0]} bis {st.session_state.data.index[-1]}")
             st.write(f"Anzahl der Datenpunkte: {len(st.session_state.data)}")
 
+            # Quell-Dateien anzeigen, falls vorhanden
+            if hasattr(st.session_state.data, 'attrs') and 'source_files' in st.session_state.data.attrs:
+                source_files = st.session_state.data.attrs['source_files']
+                if len(source_files) <= 5:
+                    st.write(f"Quelldateien: {', '.join(source_files)}")
+                else:
+                    st.write(f"Quelldateien: {', '.join(source_files[:3])} und {len(source_files) - 3} weitere...")
+
             # Option zum Neuladen anbieten
             st.write("Drücke den 'Daten laden starten' Button, um neue Daten mit den aktuellen Parametern zu laden.")
 
-# ML-Modell trainieren
 def train_model():
     st.header("ML-Modell trainieren")
 

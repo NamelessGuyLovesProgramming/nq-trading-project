@@ -605,3 +605,77 @@ class DataFetcher:
         self.logger.info(f"Kombinierte Daten gespeichert nach: {file_path}")
 
         return combined_df
+
+    def load_all_files_from_directory(self, directory_path=None):
+        """
+        Lädt alle CSV-Dateien aus einem angegebenen Verzeichnis.
+        Falls kein Pfad angegeben ist, wird das Standard-data/raw Verzeichnis verwendet.
+
+        Args:
+            directory_path (str): Pfad zum Verzeichnis mit CSV-Dateien
+                                 (Standard: data/raw oder C:/Users/Buro/pythonProject/nq-trading-project/data/raw)
+
+        Returns:
+            pandas.DataFrame: Kombiniertes DataFrame mit allen geladenen Daten
+        """
+        import os
+        import pandas as pd
+        import glob
+
+        # Verwende das angegebene Verzeichnis oder die Standardpfade
+        if directory_path is None:
+            # Prüfe erst den absoluten Windows-Pfad
+            windows_path = r"C:\Users\Buro\pythonProject\nq-trading-project\data\raw"
+            if os.path.exists(windows_path):
+                directory_path = windows_path
+            else:
+                # Fallback auf relativen Pfad
+                directory_path = os.path.join(self.data_dir)
+
+        print(f"Suche nach CSV-Dateien in: {directory_path}")
+
+        # Alle CSV-Dateien im Verzeichnis finden
+        csv_files = glob.glob(os.path.join(directory_path, "*.csv"))
+
+        if not csv_files:
+            print(f"Keine CSV-Dateien in {directory_path} gefunden.")
+            return pd.DataFrame()
+
+        print(f"Gefundene CSV-Dateien: {len(csv_files)}")
+        print(f"Dateien: {csv_files}")
+
+        # Lade und kombiniere alle Dateien
+        all_dfs = []
+        total_files = len(csv_files)
+
+        for idx, file in enumerate(sorted(csv_files)):
+            try:
+                print(f"Lade Datei ({idx + 1}/{total_files}): {os.path.basename(file)}")
+                df = self.load_and_standardize_csv(file)
+
+                if not df.empty:
+                    # Speichere den Dateinamen als Metadaten
+                    df.attrs['source_file'] = os.path.basename(file)
+                    all_dfs.append(df)
+                    print(f"  ✓ Erfolgreich geladen: {len(df)} Zeilen")
+                else:
+                    print(f"  ✗ Datei {file} konnte nicht geladen werden oder ist leer")
+            except Exception as e:
+                print(f"  ✗ Fehler beim Laden der Datei {file}: {e}")
+
+        if not all_dfs:
+            print("Keine Daten konnten geladen werden.")
+            return pd.DataFrame()
+
+        # Kombiniere alle DataFrames
+        combined_df = pd.concat(all_dfs)
+
+        # Entferne Duplikate und sortiere nach Datum
+        combined_df = combined_df[~combined_df.index.duplicated(keep='first')]
+        combined_df.sort_index(inplace=True)
+
+        # Speichere die Quell-Dateien als Attribut
+        combined_df.attrs['source_files'] = [df.attrs.get('source_file', 'unknown') for df in all_dfs]
+
+        print(f"Kombinierte Daten: {len(combined_df)} Einträge aus {len(all_dfs)} Dateien")
+        return combined_df
