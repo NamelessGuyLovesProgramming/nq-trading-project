@@ -10,6 +10,9 @@ import traceback
 from src.data.processor import DataProcessor
 from src.models.model_manager import ModelManager
 
+# Importiere die neuen Funktionen
+from src.models.model_evaluation import evaluate_model_quality, explain_metrics_in_plain_language, \
+    explain_model_architecture
 
 def scan_for_orphaned_models(models_dir='output/models'):
     """
@@ -116,39 +119,6 @@ def scan_for_orphaned_models(models_dir='output/models'):
             traceback.print_exc()
 
     return created_metadata
-
-
-import streamlit as st
-import pandas as pd
-import numpy as np
-import os
-import json
-import tensorflow as tf
-from datetime import datetime
-import traceback
-
-from src.data.processor import DataProcessor
-from src.models.model_manager import ModelManager
-
-# Importiere die neuen Funktionen
-from src.models.model_evaluation import evaluate_model_quality, explain_metrics_in_plain_language, \
-    explain_model_architecture
-
-import streamlit as st
-import pandas as pd
-import numpy as np
-import os
-import json
-import tensorflow as tf
-from datetime import datetime
-import traceback
-
-from src.data.processor import DataProcessor
-from src.models.model_manager import ModelManager
-
-# Importiere die neuen Funktionen
-from src.models.model_evaluation import evaluate_model_quality, explain_metrics_in_plain_language, \
-    explain_model_architecture
 
 
 def ml_model_ui(data=None):
@@ -394,7 +364,7 @@ def ml_model_ui(data=None):
             )
 
             # Aktionen für das ausgewählte Modell
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)  # Änderung: 2 statt 3 Spalten, Button für Modelldetails entfernt
 
             with col1:
                 if st.button("Modell laden"):
@@ -405,25 +375,26 @@ def ml_model_ui(data=None):
                             st.session_state.ml_model = model
                             st.session_state.ml_scaler = scaler
                             st.session_state.ml_metadata = metadata
-                            st.success(f"Modell '{selected_model}' erfolgreich geladen!")
+                            st.success(f"✅ Modell '{selected_model}' erfolgreich geladen!")
 
-                            # Automatisch zu Modelldetails wechseln
+                            # Zeige zusätzliche Infos zum geladenen Modell
+                            st.info(f"""
+                            **Geladenes Modell:** {selected_model}
+                            **Fenstergröße:** {metadata.get('window_size', 'Unbekannt')}
+                            **Features:** {len(metadata.get('features', []))}
+
+                            Sie können dieses Modell jetzt im Bereich "Backtest durchführen" verwenden.
+                            """)
+
+                            # Optional: Automatisch zu Modelldetails wechseln
                             st.session_state.selected_model_for_details = selected_model
-                            st.rerun()
                         else:
-                            st.error(f"Modell '{selected_model}' konnte nicht geladen werden.")
+                            st.error(f"❌ Modell '{selected_model}' konnte nicht geladen werden.")
                     except Exception as e:
-                        st.error(f"Fehler beim Laden des Modells: {e}")
+                        st.error(f"❌ Fehler beim Laden des Modells: {e}")
                         st.exception(e)
 
             with col2:
-                if st.button("Modelldetails anzeigen"):
-                    # Speichere ausgewähltes Modell und wechsle zur Details-Ansicht
-                    st.session_state.selected_model_for_details = selected_model
-                    # Setze ml_action auf "Modelldetails"
-                    st.rerun()
-
-            with col3:
                 if st.button("Modell löschen"):
                     # Sicherheitsabfrage
                     delete_confirm = st.checkbox("Wirklich löschen?")
@@ -439,6 +410,18 @@ def ml_model_ui(data=None):
                         except Exception as e:
                             st.error(f"Fehler beim Löschen des Modells: {e}")
                             st.exception(e)
+
+            # Anzeige des aktuell geladenen Modells, wenn vorhanden
+            if hasattr(st.session_state, 'ml_metadata') and st.session_state.ml_metadata:
+                loaded_model_name = st.session_state.ml_metadata.get('name', 'Unbekannt')
+                st.write(f"### Aktuell geladenes Modell")
+                st.info(f"""
+                **Modell:** {loaded_model_name}
+                **Fenstergröße:** {st.session_state.ml_metadata.get('window_size', 'Unbekannt')}
+                **Features:** {len(st.session_state.ml_metadata.get('features', []))}
+
+                Um detaillierte Informationen zu sehen, wechseln Sie zum Tab "Modelldetails".
+                """)
 
     elif ml_action == "Modelldetails":
         st.subheader("Modelldetails")

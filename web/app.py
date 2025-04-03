@@ -76,6 +76,35 @@ with st.sidebar:
          "Visualisieren"]
     )
 
+    # Neue Statusanzeige für geladene Daten und Modelle
+    st.divider()
+    st.write("### Aktueller Status")
+
+    # Zeige Status der geladenen Daten an
+    if 'data' in st.session_state and st.session_state.data is not None:
+        data_info = f"""
+        **Daten geladen:** ✅
+        - Symbol: {st.session_state.get('symbol', 'Unbekannt')}
+        - Zeitraum: {st.session_state.get('period', 'Unbekannt')}
+        - Datenpunkte: {len(st.session_state.data):,}
+        """
+        st.info(data_info)
+    else:
+        st.warning("**Daten:** ❌ Nicht geladen")
+
+    # Zeige Status des geladenen Modells an
+    if hasattr(st.session_state, 'ml_model') and st.session_state.ml_model is not None:
+        model_name = st.session_state.ml_metadata.get('name', 'Unbekannt')
+        model_info = f"""
+        **ML-Modell geladen:** ✅
+        - Name: {model_name}
+        - Fenstergröße: {st.session_state.ml_metadata.get('window_size', 'Unbekannt')}
+        - Features: {len(st.session_state.ml_metadata.get('features', []))}
+        """
+        st.info(model_info)
+    else:
+        st.warning("**ML-Modell:** ❌ Nicht geladen")
+
 
 # Daten laden
 def load_data():
@@ -397,6 +426,8 @@ def train_model():
 
 
 # Backtest durchführen
+
+
 def run_backtest():
     st.header("Backtest durchführen")
 
@@ -419,59 +450,79 @@ def run_backtest():
 
     # Parameter je nach Strategie
     if strategy_type == "ml":
-        if st.session_state.model is None:
-            ml_model_path = st.text_input(
-                "Pfad zum trainierten Modell",
-                value=os.path.join("output", "models", "lstm_model.h5")
-            )
+        # Prüfen ob bereits ein Modell geladen ist
+        model_loaded = hasattr(st.session_state, 'ml_model') and st.session_state.ml_model is not None
 
-            # Prüfe, ob Modell existiert
-            if not os.path.exists(ml_model_path):
-                st.warning(
-                    f"Modell unter {ml_model_path} nicht gefunden. Bitte trainieren Sie zuerst ein Modell oder geben Sie einen gültigen Pfad an.")
+        if model_loaded:
+            # Zeige Informationen zum geladenen Modell
+            model_metadata = st.session_state.ml_metadata
+            model_name = model_metadata.get('name', 'Unbekannt')
 
             with strategy_params:
+                st.success(f"✅ Modell '{model_name}' ist geladen und wird verwendet")
+
+                # Extrahiere die trainierte Fenstergröße
+                trained_window_size = model_metadata.get('window_size', 60)
+
+                # ML-Threshold
                 ml_threshold = st.slider(
                     "Signal-Schwellenwert",
                     min_value=0.001,
                     max_value=0.05,
                     value=0.005,
                     step=0.001,
-                    format="%.3f"
+                    format="%.3f",
+                    help="Mindestgröße der Preisänderung (in %), die ein Handelssignal auslöst"
                 )
-                window_size = st.slider("Fenstergröße", min_value=10, max_value=120, value=WINDOW_SIZE, step=5)
+
+                # Zeige Fenstergröße aus dem trainierten Modell mit Warnung bei Änderung
+                window_size = st.slider(
+                    "Fenstergröße",
+                    min_value=10,
+                    max_value=120,
+                    value=trained_window_size,
+                    step=5,
+                    help="⚠️ Diese Fenstergröße sollte idealerweise mit der beim Training verwendeten Größe übereinstimmen (aktuell: " + str(
+                        trained_window_size) + "). Eine Änderung kann zu unvorhersehbaren Ergebnissen führen."
+                )
+
+                if window_size != trained_window_size:
+                    st.warning(f"""
+                    ⚠️ Die gewählte Fenstergröße ({window_size}) weicht von der beim Training verwendeten Größe ({trained_window_size}) ab!
+
+                    Dies kann zu unerwarteten Ergebnissen führen, da das ML-Modell mit einer bestimmten Sequenzlänge trainiert wurde.
+                    Es wird empfohlen, die gleiche Fenstergröße zu verwenden.
+                    """)
         else:
+            # Kein Modell geladen - biete Möglichkeit ein Modell zu laden
             with strategy_params:
+                st.warning("""
+                ⚠️ Kein ML-Modell geladen. Bitte laden Sie zuerst ein Modell über die ML-Modell-Verwaltung:
+
+                1. Wechseln Sie zu "ML-Modell-Verwaltung" im Hauptmenü
+                2. Wählen Sie "Modelle verwalten"
+                3. Wählen Sie ein Modell aus und klicken Sie auf "Modell laden"
+                4. Kehren Sie zu "Backtest durchführen" zurück
+                """)
+
+                # ML-Parameter - auch ohne geladenes Modell anzeigen
                 ml_threshold = st.slider(
                     "Signal-Schwellenwert",
                     min_value=0.001,
                     max_value=0.05,
                     value=0.005,
                     step=0.001,
-                    format="%.3f"
+                    format="%.3f",
+                    help="Mindestgröße der Preisänderung (in %), die ein Handelssignal auslöst"
                 )
-                window_size = WINDOW_SIZE  # Verwende den gleichen Wert wie beim Training
-    if strategy_type == "ml":
-        # Überprüfe, ob ein Modell in der Session vorhanden ist
-        if hasattr(st.session_state, 'ml_model') and hasattr(st.session_state, 'ml_scaler'):
-            model = st.session_state.ml_model
-            scaler = st.session_state.ml_scaler
-            metadata = st.session_state.ml_metadata if hasattr(st.session_state, 'ml_metadata') else None
-
-            # Verwende die Features des geladenen Modells, falls verfügbar
-            selected_features = metadata.get('features') if metadata else None
-
-            # Erstelle ML-Strategie mit dem geladenen Modell
-            strategy = MLStrategy(
-                model,
-                scaler,
-                window_size=window_size,
-                threshold=ml_threshold,
-                selected_features=selected_features
-            )
-        else:
-            print()
-    # Bestehender Code für den Fall, dass kein Modell geladen ist
+                window_size = st.slider(
+                    "Fenstergröße",
+                    min_value=10,
+                    max_value=120,
+                    value=60,
+                    step=5,
+                    help="Anzahl der historischen Datenpunkte, die für die Vorhersage verwendet werden. Sollte mit der beim Training verwendeten Größe übereinstimmen."
+                )
 
     elif strategy_type == "mean_reversion":
         with strategy_params:
@@ -577,37 +628,21 @@ def run_backtest():
                 # Erstelle die ausgewählte Strategie
                 if strategy_type == "ml":
                     # Lade oder verwende das Modell
-                    if st.session_state.model is None:
-                        # Lade das Modell von der Festplatte
-                        if not os.path.exists(ml_model_path):
-                            st.error(f"Modell unter {ml_model_path} nicht gefunden.")
-                            return
-
-                        # Lade das Modell
-                        input_shape = (window_size, len(st.session_state.data.columns))
-                        model = LSTMModel(input_shape)
-                        model.load_model(ml_model_path)
-
-                        # Bereite Daten vor
-                        processor = DataProcessor()
-                        _, _, _, _, scaler = processor.prepare_data_for_ml(
-                            st.session_state.data, window_size=window_size
-                        )
+                    if not model_loaded:
+                        st.error("Kein ML-Modell geladen. Bitte laden Sie zuerst ein Modell.")
+                        return
                     else:
                         # Verwende das trainierte Modell aus der Session
-                        model = st.session_state.model
-                        processor = DataProcessor()
-                        _, _, _, _, scaler = processor.prepare_data_for_ml(
-                            st.session_state.data, window_size=window_size
-                        )
+                        model = st.session_state.ml_model
+                        scaler = st.session_state.ml_scaler
 
-                    # Erstelle ML-Strategie
-                    strategy = MLStrategy(
-                        model.model,
-                        scaler,
-                        window_size=window_size,
-                        threshold=ml_threshold
-                    )
+                        # Erstelle ML-Strategie
+                        strategy = MLStrategy(
+                            model,
+                            scaler,
+                            window_size=window_size,
+                            threshold=ml_threshold
+                        )
 
                 elif strategy_type == "mean_reversion":
                     strategy = MeanReversionStrategy(
