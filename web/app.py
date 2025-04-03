@@ -17,7 +17,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.data.fetcher import DataFetcher
 from src.data.processor import DataProcessor
 from src.models.lstm import LSTMModel
-from src.models.model_evaluation import evaluate_model_quality, explain_metrics_in_plain_language, explain_model_architecture
+from src.models.model_evaluation import evaluate_model_quality, explain_metrics_in_plain_language, \
+    explain_model_architecture
 import glob
 from src.backtesting.engine import BacktestEngine
 from src.backtesting.metrics import calculate_performance_metrics
@@ -31,7 +32,6 @@ from src.strategies.volume_profile import VolumeProfileStrategy
 from src.strategies.market_regime import MarketRegimeStrategy
 from src.strategies.ensemble import EnsembleStrategy
 from src.strategies.risk_managed import RiskManagedStrategy
-
 
 # Konstanten aus config
 from config import (
@@ -106,61 +106,106 @@ with st.sidebar:
 def load_data():
     st.header("Daten laden")
 
-    # Option zum automatischen Laden aller Dateien
-    load_all_files = st.checkbox("Alle CSV-Dateien aus dem data/raw Verzeichnis laden", value=False)
+    # Verzeichnis-Pfade
+    default_path = "data/raw"
+    windows_path = r"C:\Users\Buro\pythonProject\nq-trading-project\data\raw"
 
-    if load_all_files:
-        # Verzeichnis-Pfade
-        default_path = "data/raw"
-        windows_path = r"C:\Users\Buro\pythonProject\nq-trading-project\data\raw"
+    # Bestimme den Pfad zum Suchen nach CSV-Dateien
+    data_dir = windows_path if os.path.exists(windows_path) else default_path
 
-        # Option zum Überschreiben des Verzeichnispfads
-        custom_path = st.text_input(
-            "Verzeichnispfad (optional)",
-            value=windows_path if os.path.exists(windows_path) else default_path,
-            help="Pfad zum Verzeichnis, das alle CSV-Dateien enthält"
+    # Suche automatisch nach CSV-Dateien im Verzeichnis (beim Programmstart)
+    csv_files = []
+    csv_filenames = []
+    if os.path.exists(data_dir):
+        csv_files = glob.glob(os.path.join(data_dir, "*.csv"))
+        csv_filenames = [os.path.basename(f) for f in csv_files]
+
+        if csv_files:
+            st.success(f"{len(csv_files)} CSV-Dateien im Verzeichnis '{data_dir}' gefunden.")
+        else:
+            st.warning(f"Keine CSV-Dateien im Verzeichnis '{data_dir}' gefunden.")
+
+    # Dateiauswahl mit Filter und Dropdown
+    st.write("### Datenauswahl")
+
+    # Option 1: Einzelne CSV-Datei laden (mit Filter und Dropdown)
+    st.write("**Option 1:** Einzelne CSV-Datei laden")
+
+    # Filter für Dateien mit Dropdown-Vorschlägen
+    filter_text = st.text_input("Dateifilter (z.B. 'nq' für alle nq-Dateien)", key="file_filter_input")
+
+    # Filtere die Dateien basierend auf der Eingabe
+    filtered_files = []
+    if filter_text:
+        filtered_files = [f for f in csv_filenames if filter_text.lower() in f.lower()]
+
+        if filtered_files:
+            st.success(f"{len(filtered_files)} passende Dateien gefunden.")
+        else:
+            st.warning(f"Keine Dateien mit '{filter_text}' gefunden.")
+
+    # Zeige Dropdown nur an, wenn gefilterte Dateien vorhanden sind
+    custom_file = ""
+    if filtered_files:
+        custom_file = st.selectbox(
+            "Benutzerdefinierte Datei auswählen",
+            options=filtered_files,
+            key="filtered_file_select"
+        )
+    elif not filter_text and csv_filenames:
+        # Wenn kein Filter gesetzt ist, zeige alle verfügbaren Dateien
+        custom_file = st.selectbox(
+            "Benutzerdefinierte Datei auswählen",
+            options=csv_filenames,
+            key="all_files_select"
         )
 
-        # Info-Box über gefundene Dateien anzeigen
-        if os.path.exists(custom_path):
-            csv_files = glob.glob(os.path.join(custom_path, "*.csv"))
-            if csv_files:
-                st.info(f"{len(csv_files)} CSV-Dateien im Verzeichnis gefunden.")
-            else:
-                st.warning(f"Keine CSV-Dateien im Verzeichnis '{custom_path}' gefunden.")
-        else:
-            st.error(f"Verzeichnis '{custom_path}' existiert nicht!")
+    # Option 2: Spezielle Kombinationen
+    st.write("**Option 2:** Spezielle Datenkombinationen")
+    special_option = st.radio(
+        "Spezielle Datenoptionen:",
+        ["Keine", "Alle nq-1m* Dateien kombinieren", "Alle CSV-Dateien kombinieren"],
+        key="special_option_radio"
+    )
 
-    # Die bisherigen Optionen für einzelne Dateien
-    else:
-        st.write("Standard-Datenladung:")
-        # Bestehende Felder für Symbol, Period, Interval, custom_file und combine_all_years bleiben erhalten
+    # Option 3: Standard Yahoo Finance-Daten
+    st.write("**Option 3:** Yahoo Finance-Daten")
+    use_yahoo = st.checkbox("Yahoo Finance-Daten verwenden", key="use_yahoo_checkbox")
+
+    # Die Parameter aus der Sidebar werden hier verwendet (symbol, period, interval)
+    if use_yahoo:
+        st.info(
+            f"Es werden Daten für {symbol} mit Periode {period} und Intervall {interval} von Yahoo Finance geladen.")
 
     # Füge einen Knopf hinzu, um den Ladevorgang zu starten
-    if st.button("Daten laden starten"):
+    if st.button("Daten laden starten", key="load_data_button"):
         with st.spinner("Daten werden geladen..."):
             try:
                 # Erstelle DataFetcher-Instanz
                 fetcher = DataFetcher(symbol=symbol)
 
-                # Lade Daten basierend auf den Parametern
-                if load_all_files:
-                    # Verwende die neue Methode zum Laden aller Dateien
-                    data = fetcher.load_all_files_from_directory(custom_path)
-                    st.success(f"Alle CSV-Dateien aus '{custom_path}' wurden geladen.")
-                elif combine_all_years:
+                # Entscheide, welche Daten geladen werden sollen basierend auf den Optionen
+                if special_option == "Alle nq-1m* Dateien kombinieren":
+                    # Lade und kombiniere alle nq-1m Dateien
                     data = fetcher.load_custom_file("nq-1m*.csv")
                     st.success("Alle nq-1m* Dateien wurden kombiniert und geladen.")
+                elif special_option == "Alle CSV-Dateien kombinieren":
+                    # Lade und kombiniere alle CSV-Dateien
+                    data = fetcher.load_all_files_from_directory(data_dir)
+                    st.success(f"Alle CSV-Dateien aus '{data_dir}' wurden kombiniert und geladen.")
                 elif custom_file:
+                    # Lade die ausgewählte benutzerdefinierte Datei
                     data = fetcher.fetch_data(period=period, interval=interval, force_download=True,
                                               custom_file=custom_file)
                     st.success(f"Benutzerdefinierte Datei '{custom_file}' wurde geladen.")
-                elif period.startswith("nq-1m"):
-                    data = fetcher.load_nq_minute_data(period)
-                    st.success(f"NQ 1-Minuten-Daten für Periode: {period} wurden geladen.")
-                else:
+                elif use_yahoo:
+                    # Lade Daten von Yahoo Finance
                     data = fetcher.fetch_data(period=period, interval=interval, force_download=True)
-                    st.success(f"Daten für {symbol} mit Periode {period} und Intervall {interval} wurden geladen.")
+                    st.success(
+                        f"Daten für {symbol} mit Periode {period} und Intervall {interval} wurden von Yahoo Finance geladen.")
+                else:
+                    st.error("Bitte wählen Sie eine Datenoption aus.")
+                    return None
 
                 # Fehlerprüfung
                 if data is None or data.empty:
@@ -190,16 +235,19 @@ def load_data():
                 # Speichere in Session-State einschließlich der Quellinformationen
                 st.session_state.data = data_with_indicators
 
-                # Symbol, Periode und Intervall speichern (wenn sie nicht aus den Attributen kommen)
-                if not load_all_files:
+                # Symbol, Periode und Intervall speichern
+                if use_yahoo:
                     st.session_state.symbol = symbol
                     st.session_state.period = period
                     st.session_state.interval = interval
-                else:
-                    # Bei mehreren Dateien allgemeine Bezeichnungen verwenden
+                elif special_option == "Alle CSV-Dateien kombinieren":
                     st.session_state.symbol = "Multiple"
                     st.session_state.period = "Custom"
                     st.session_state.interval = "Mixed"
+                elif custom_file:
+                    st.session_state.symbol = custom_file.split('.')[0]  # Verwende Dateinamen ohne Erweiterung
+                    st.session_state.period = "Custom"
+                    st.session_state.interval = "Custom"
 
                 return data_with_indicators
 
@@ -210,7 +258,7 @@ def load_data():
     else:
         # Zeige einen Hinweis, wenn noch keine Daten geladen wurden
         if st.session_state.data is None:
-            st.info("Klicke auf 'Daten laden starten', um den Ladevorgang zu beginnen.")
+            st.info("Wählen Sie eine Datenoption und klicken Sie dann auf 'Daten laden starten'.")
         else:
             # Wenn bereits Daten geladen wurden, zeige eine Zusammenfassung
             st.success("Daten wurden bereits geladen.")
@@ -226,7 +274,9 @@ def load_data():
                     st.write(f"Quelldateien: {', '.join(source_files[:3])} und {len(source_files) - 3} weitere...")
 
             # Option zum Neuladen anbieten
-            st.write("Drücke den 'Daten laden starten' Button, um neue Daten mit den aktuellen Parametern zu laden.")
+            st.write(
+                "Wählen Sie eine andere Datenoption und klicken Sie auf 'Daten laden starten', um neue Daten zu laden.")
+
 
 def train_model():
     st.header("ML-Modell trainieren")
@@ -281,7 +331,6 @@ def train_model():
                         progress_bar.progress(progress)
                         status_text.text(
                             f"Epoch {epoch + 1}/{epochs} - Loss: {logs['loss']:.4f} - Val Loss: {logs['val_loss']:.4f}")
-
 
                 # Verwende stattdessen:
                 # Zuerst Modell erstellen und kompilieren (wird bereits in model.build_model() gemacht)
@@ -710,13 +759,6 @@ def run_backtest():
                 st.exception(e)
 
 
-# Visualisierungen
-# Updated visualize_data function for web/app.py
-
-# Updated visualize_data function for web/app.py
-
-# Aktualisierte Funktion in web/app.py, um die Option zum Überspringen von Wochenenden anzubieten
-
 def visualize_data():
     st.header("Daten visualisieren")
 
@@ -932,6 +974,7 @@ def visualize_data():
             max_points=max_points
         )
 
+
 def main():
     # Aktionen basierend auf ausgewähltem Tab
     if action == "Daten laden":
@@ -944,6 +987,7 @@ def main():
         run_backtest()
     elif action == "Visualisieren":
         visualize_data()
+
 
 # App ausführen
 if __name__ == "__main__":

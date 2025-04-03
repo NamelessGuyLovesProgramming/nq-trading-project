@@ -131,7 +131,24 @@ from src.data.processor import DataProcessor
 from src.models.model_manager import ModelManager
 
 # Importiere die neuen Funktionen
-from src.models.model_evaluation import evaluate_model_quality, explain_metrics_in_plain_language, explain_model_architecture
+from src.models.model_evaluation import evaluate_model_quality, explain_metrics_in_plain_language, \
+    explain_model_architecture
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import os
+import json
+import tensorflow as tf
+from datetime import datetime
+import traceback
+
+from src.data.processor import DataProcessor
+from src.models.model_manager import ModelManager
+
+# Importiere die neuen Funktionen
+from src.models.model_evaluation import evaluate_model_quality, explain_metrics_in_plain_language, \
+    explain_model_architecture
 
 
 def ml_model_ui(data=None):
@@ -148,12 +165,6 @@ def ml_model_ui(data=None):
     # Initialisiere den ModelManager
     model_manager = ModelManager()
     processor = DataProcessor()
-
-    # Automatisch nach Modellen suchen beim Start (ohne Button)
-    with st.spinner("Suche nach Modellen..."):
-        created_files = scan_for_orphaned_models()
-        if created_files:
-            st.success(f"{len(created_files)} neue Metadatendateien erstellt!")
 
     # Sekundäres Menü für ML-Funktionen
     ml_action = st.radio(
@@ -352,6 +363,83 @@ def ml_model_ui(data=None):
                         st.error(f"❌ Fehler beim Training: {str(e)}")
                         st.exception(e)
 
+    elif ml_action == "Modelle verwalten":
+        st.subheader("Modelle verwalten")
+
+        # Lade verfügbare Modelle
+        available_models = model_manager.list_available_models()
+
+        if not available_models:
+            st.info("Keine Modelle gefunden. Trainieren Sie zuerst ein Modell.")
+        else:
+            # Tabelle mit Modellen anzeigen
+            models_df = pd.DataFrame([
+                {
+                    "Name": model.get("name", "Unbekannt"),
+                    "Erstellt am": model.get("created_at", "").split("T")[0] if model.get("created_at", "") else "",
+                    "Features": len(model.get("features", [])),
+                    "RMSE": model.get("metrics", {}).get("rmse", "N/A"),
+                    "Aktionen": model.get("name", "")
+                } for model in available_models
+            ])
+
+            # Zeige die Modelle in einer Tabelle an
+            st.write("### Verfügbare Modelle")
+            st.dataframe(models_df[["Name", "Erstellt am", "Features", "RMSE"]])
+
+            # Wähle ein Modell zum Laden oder Löschen
+            selected_model = st.selectbox(
+                "Modell auswählen:",
+                options=[model.get("name", "Unbekannt") for model in available_models]
+            )
+
+            # Aktionen für das ausgewählte Modell
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                if st.button("Modell laden"):
+                    try:
+                        model, scaler, metadata = model_manager.load_model(selected_model)
+                        if model is not None:
+                            # Speichere Modell in Session-State für spätere Verwendung
+                            st.session_state.ml_model = model
+                            st.session_state.ml_scaler = scaler
+                            st.session_state.ml_metadata = metadata
+                            st.success(f"Modell '{selected_model}' erfolgreich geladen!")
+
+                            # Automatisch zu Modelldetails wechseln
+                            st.session_state.selected_model_for_details = selected_model
+                            st.experimental_rerun()
+                        else:
+                            st.error(f"Modell '{selected_model}' konnte nicht geladen werden.")
+                    except Exception as e:
+                        st.error(f"Fehler beim Laden des Modells: {e}")
+                        st.exception(e)
+
+            with col2:
+                if st.button("Modelldetails anzeigen"):
+                    # Speichere ausgewähltes Modell und wechsle zur Details-Ansicht
+                    st.session_state.selected_model_for_details = selected_model
+                    # Setze ml_action auf "Modelldetails"
+                    st.experimental_rerun()
+
+            with col3:
+                if st.button("Modell löschen"):
+                    # Sicherheitsabfrage
+                    delete_confirm = st.checkbox("Wirklich löschen?")
+                    if delete_confirm and st.button("Endgültig löschen"):
+                        try:
+                            success = model_manager.delete_model(selected_model)
+                            if success:
+                                st.success(f"Modell '{selected_model}' erfolgreich gelöscht!")
+                                # Aktualisieren nach Löschen
+                                st.experimental_rerun()
+                            else:
+                                st.error(f"Modell '{selected_model}' konnte nicht gelöscht werden.")
+                        except Exception as e:
+                            st.error(f"Fehler beim Löschen des Modells: {e}")
+                            st.exception(e)
+
     elif ml_action == "Modelldetails":
         st.subheader("Modelldetails")
 
@@ -490,8 +578,6 @@ def ml_model_ui(data=None):
                             st.write(f"{i + 1}. {layer}")
             else:
                 st.warning(f"Keine Details für Modell '{selected_detail_model}' gefunden")
-
-    # Rest der Methode (Modelle verwalten und Backtest-Ergebnisse) bleibt unverändert
 
     elif ml_action == "Backtest-Ergebnisse":
         st.subheader("Backtest-Ergebnisse aktualisieren")
