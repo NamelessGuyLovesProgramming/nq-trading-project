@@ -409,7 +409,7 @@ def ml_model_ui(data=None):
 
                             # Automatisch zu Modelldetails wechseln
                             st.session_state.selected_model_for_details = selected_model
-                            st.experimental_rerun()
+                            st.rerun()
                         else:
                             st.error(f"Modell '{selected_model}' konnte nicht geladen werden.")
                     except Exception as e:
@@ -421,7 +421,7 @@ def ml_model_ui(data=None):
                     # Speichere ausgewähltes Modell und wechsle zur Details-Ansicht
                     st.session_state.selected_model_for_details = selected_model
                     # Setze ml_action auf "Modelldetails"
-                    st.experimental_rerun()
+                    st.rerun()
 
             with col3:
                 if st.button("Modell löschen"):
@@ -433,7 +433,7 @@ def ml_model_ui(data=None):
                             if success:
                                 st.success(f"Modell '{selected_model}' erfolgreich gelöscht!")
                                 # Aktualisieren nach Löschen
-                                st.experimental_rerun()
+                                st.rerun()
                             else:
                                 st.error(f"Modell '{selected_model}' konnte nicht gelöscht werden.")
                         except Exception as e:
