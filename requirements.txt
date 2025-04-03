@@ -6,3 +6,11 @@ yfinance~=0.2.39
 matplotlib~=3.8.2
 plotly~=5.19.0
 jupyter~=1.0.0
+
+
+-Bitte mach Benutzerdefinierte Datei (optional) so, dass alle dateien aus dem verzeichnis: C:\Users\Buro\pythonProject\nq-trading-project\data\raw geladen werden
+-die ausgewählten features werden beim trainingsstart nicht gespeichert, ebenfalls nicht das symbol der daten. Ich will das sie angezeigt werden
+(wenn man es lädt, sowie zeitraum und interval)
+-Bitte erleutere die trainingsmetrik, mach sie also für den normalmenschlichen verständlich
+-Bitte gebe eine generelle modellaussage ( also bewerte das model: gut schlecht? mittemässig, oder beschriebe die punktzahl irgendwie)
+-Bitte speicher noch unter traningsquelle den dateinamen. Erkläre ebenfalls die modellarchitektur ( mach sie also für den normalmenschlichen verständlich ) vllt mit einem (i) für info, du weit es am besten. DEnk gründlkich nach!

@@ -11,7 +11,7 @@ class MLStrategy(BaseStrategy):
 
         Parameters:
         -----------
-        model : Trainieres Modell
+        model : Trainiertes Modell
             Das trainierte ML-Modell für Vorhersagen
         scaler : sklearn.preprocessing.Scaler
             Der zum Skalieren der Daten verwendete Scaler
@@ -21,7 +21,8 @@ class MLStrategy(BaseStrategy):
             Schwellenwert für Signale
         selected_features : list
             Liste der für das Modell ausgewählten Features.
-            Wenn None, werden Standardfeatures verwendet.
+            Wenn None, wird versucht, die Features aus dem Scaler zu extrahieren,
+            oder eine Standardliste wird verwendet.
         """
         super().__init__(name="ML_Strategy")
         self.model = model
@@ -29,15 +30,51 @@ class MLStrategy(BaseStrategy):
         self.window_size = window_size
         self.threshold = threshold
 
-        # Standardmäßige Feature-Liste, falls keine angegeben wird
-        self.selected_features = selected_features or [
-            'Open', 'High', 'Low', 'Close', 'Volume',
-            'SMA_20', 'EMA_9', 'RSI', 'MACD', 'BB_Middle', 'BB_Upper', 'BB_Lower'
-        ]
+        # Versuche, die Anzahl der Features aus dem Scaler zu erhalten
+        n_features = getattr(scaler, 'n_features_in_', None)
 
+        if selected_features is not None:
+            # Verwende die übergebene Feature-Liste
+            self.selected_features = selected_features
+
+            # Überprüfe, ob die Anzahl der Features mit dem Scaler übereinstimmt
+            if n_features is not None and len(self.selected_features) != n_features:
+                print(
+                    f"Warnung: Anzahl der ausgewählten Features ({len(self.selected_features)}) "
+                    f"stimmt nicht mit der vom Scaler erwarteten Anzahl ({n_features}) überein."
+                )
+        elif n_features is not None:
+            # Wenn keine Features angegeben wurden, aber wir die Anzahl kennen,
+            # verwende eine passende Standardliste
+            standard_features = [
+                'Open', 'High', 'Low', 'Close', 'Volume',
+                'SMA_20', 'EMA_9', 'RSI', 'MACD', 'MACD_Signal', 'MACD_Hist',
+                'BB_Middle', 'BB_Upper', 'BB_Lower', 'STOCH_k', 'STOCH_d',
+                'ATR', 'OBV'
+            ]
+
+            # Verwende so viele Features wie benötigt
+            if n_features <= len(standard_features):
+                self.selected_features = standard_features[:n_features]
+            else:
+                # Falls wir mehr Features benötigen als in der Standardliste,
+                # fülle mit Dummy-Namen auf
+                self.selected_features = standard_features + [
+                    f"Feature_{i}" for i in range(len(standard_features), n_features)
+                ]
+
+            print(f"Features automatisch aus Scaler extrahiert: {self.selected_features}")
+        else:
+            # Fallback auf Standardliste
+            self.selected_features = [
+                'Open', 'High', 'Low', 'Close', 'Volume',
+                'SMA_20', 'EMA_9', 'RSI', 'MACD', 'BB_Middle', 'BB_Upper', 'BB_Lower'
+            ]
+            print(f"Verwende Standardliste von {len(self.selected_features)} Features")
     def prepare_features(self, data):
         """
-        Bereitet Features für das Modell vor.
+        Bereitet Features für das Modell vor und stellt sicher, dass die Dimensionen
+        mit denen des trainierten Scalers übereinstimmen.
 
         Parameters:
         -----------
@@ -52,24 +89,44 @@ class MLStrategy(BaseStrategy):
         # Daten für die Verarbeitung vorbereiten
         data = prepare_dataframe(data.copy())
 
+        # Anzahl der vom Scaler erwarteten Features ermitteln
+        expected_features_count = getattr(self.scaler, 'n_features_in_', len(self.selected_features))
+
         # Prüfe, ob die ausgewählten Features verfügbar sind
         available_features = [f for f in self.selected_features if f in data.columns]
+        missing_features = set(self.selected_features) - set(available_features)
 
         # Wenn nicht alle Features verfügbar sind, gib eine Warnung aus
-        if len(available_features) < len(self.selected_features):
-            missing_features = set(self.selected_features) - set(available_features)
+        if missing_features:
             print(f"Warnung: Folgende Features fehlen: {missing_features}")
             print(f"Verfügbare Features: {list(data.columns)}")
 
-            # Wenn kritische Features fehlen, werfe einen Fehler
-            if len(available_features) < 5:  # Mindestens OHLCV sollten vorhanden sein
-                raise ValueError(
-                    f"Zu wenige Features verfügbar. Benötigt: {self.selected_features}, "
-                    f"Verfügbar: {available_features}"
-                )
+            # Erstelle Daten-Frame mit fehlenden Spalten (gefüllt mit 0)
+            for missing_feature in missing_features:
+                data[missing_feature] = 0
 
-        # Extrahiere die Features
+            # Aktualisiere die verfügbaren Features
+            available_features = self.selected_features
+
+        # Extrahiere die Features in der richtigen Reihenfolge
         feature_data = data[available_features].values
+
+        # Prüfe, ob die Dimensionen passen
+        actual_features = feature_data.shape[1]
+
+        if expected_features_count != actual_features:
+            # Wenn die Anzahl nicht passt, fülle mit 0-Spalten auf
+            padding_needed = expected_features_count - actual_features
+            if padding_needed > 0:
+                print(f"Fülle {padding_needed} fehlende Feature-Spalten mit 0 auf")
+                padding = np.zeros((feature_data.shape[0], padding_needed))
+                feature_data = np.hstack([feature_data, padding])
+            else:
+                raise ValueError(
+                    f"Feature-Dimensionen stimmen nicht überein. "
+                    f"Scaler erwartet {expected_features_count} Features, aber {actual_features} wurden bereitgestellt. "
+                    f"Diese Diskrepanz kann nicht automatisch behoben werden."
+                )
 
         # Skaliere die Daten mit dem vorhandenen Scaler
         feature_data = self.scaler.transform(feature_data)
