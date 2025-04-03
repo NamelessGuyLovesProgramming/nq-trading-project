@@ -65,7 +65,7 @@ if 'signals' not in st.session_state:
 if 'model' not in st.session_state:
     st.session_state.model = None
 
-# Seitenleiste für Hauptparameter
+# Seitenleiste für Hauptaktionen (ohne Datenparameter)
 with st.sidebar:
     st.header("Hauptaktionen")
     action = st.radio(
@@ -75,31 +75,6 @@ with st.sidebar:
          "Backtest durchführen",
          "Visualisieren"]
     )
-
-    st.header("Datenparameter")
-    symbol = st.text_input("Symbol", value=DEFAULT_SYMBOL)
-    period = st.selectbox(
-        "Zeitraum",
-        ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "max"],
-        index=2  # Default ist 1mo
-    )
-    interval = st.selectbox(
-        "Intervall",
-        ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"],
-        index=0  # Default ist 1m
-    )
-
-    # Speichere Parameter im Session-State für ML-Modelltraining
-    st.session_state.symbol = symbol
-    st.session_state.period = period
-    st.session_state.interval = interval
-
-    # Warnung für unvereinbare Kombinationen
-    if interval == "1m" and period not in ["1d", "5d"]:
-        st.warning("⚠️ 1m-Intervall ist nur für Zeiträume bis zu 7 Tagen verfügbar.")
-
-    custom_file = st.text_input("Benutzerdefinierte Datei (optional)", value="")
-    combine_all_years = st.checkbox("Alle nq-1m* Dateien kombinieren")
 
 
 # Daten laden
@@ -164,7 +139,7 @@ def load_data():
     st.write("**Option 2:** Spezielle Datenkombinationen")
     special_option = st.radio(
         "Spezielle Datenoptionen:",
-        ["Keine", "Alle nq-1m* Dateien kombinieren", "Alle CSV-Dateien kombinieren"],
+        ["Keine", "Alle nq-1m* Dateien kombinieren"],
         key="special_option_radio"
     )
 
@@ -172,8 +147,32 @@ def load_data():
     st.write("**Option 3:** Yahoo Finance-Daten")
     use_yahoo = st.checkbox("Yahoo Finance-Daten verwenden", key="use_yahoo_checkbox")
 
-    # Die Parameter aus der Sidebar werden hier verwendet (symbol, period, interval)
+    # Hinzufügen der Datenparameter direkt in Option 3
     if use_yahoo:
+        # Yahoo Finance-Parameter
+        yahoo_params = st.expander("Yahoo Finance Parameter", expanded=True)
+        with yahoo_params:
+            symbol = st.text_input("Symbol", value=DEFAULT_SYMBOL)
+            period = st.selectbox(
+                "Zeitraum",
+                ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "max"],
+                index=2  # Default ist 1mo
+            )
+            interval = st.selectbox(
+                "Intervall",
+                ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"],
+                index=0  # Default ist 1m
+            )
+
+            # Warnung für unvereinbare Kombinationen
+            if interval == "1m" and period not in ["1d", "5d"]:
+                st.warning("⚠️ 1m-Intervall ist nur für Zeiträume bis zu 7 Tagen verfügbar.")
+
+        # Speichere Parameter im Session-State
+        st.session_state.symbol = symbol
+        st.session_state.period = period
+        st.session_state.interval = interval
+
         st.info(
             f"Es werden Daten für {symbol} mit Periode {period} und Intervall {interval} von Yahoo Finance geladen.")
 
@@ -182,24 +181,29 @@ def load_data():
         with st.spinner("Daten werden geladen..."):
             try:
                 # Erstelle DataFetcher-Instanz
-                fetcher = DataFetcher(symbol=symbol)
+                # Für Yahoo Finance verwenden wir die Parameter aus der Option 3
+                if use_yahoo:
+                    fetcher = DataFetcher(symbol=symbol)
+                else:
+                    # Für andere Optionen verwenden wir den Standardwert oder den letzten gespeicherten Wert
+                    fetcher = DataFetcher(symbol=st.session_state.get("symbol", DEFAULT_SYMBOL))
 
                 # Entscheide, welche Daten geladen werden sollen basierend auf den Optionen
                 if special_option == "Alle nq-1m* Dateien kombinieren":
                     # Lade und kombiniere alle nq-1m Dateien
                     data = fetcher.load_custom_file("nq-1m*.csv")
                     st.success("Alle nq-1m* Dateien wurden kombiniert und geladen.")
-                elif special_option == "Alle CSV-Dateien kombinieren":
-                    # Lade und kombiniere alle CSV-Dateien
-                    data = fetcher.load_all_files_from_directory(data_dir)
-                    st.success(f"Alle CSV-Dateien aus '{data_dir}' wurden kombiniert und geladen.")
                 elif custom_file:
                     # Lade die ausgewählte benutzerdefinierte Datei
-                    data = fetcher.fetch_data(period=period, interval=interval, force_download=True,
-                                              custom_file=custom_file)
+                    data = fetcher.fetch_data(
+                        period=st.session_state.get("period", DEFAULT_PERIOD),
+                        interval=st.session_state.get("interval", DEFAULT_INTERVAL),
+                        force_download=True,
+                        custom_file=custom_file
+                    )
                     st.success(f"Benutzerdefinierte Datei '{custom_file}' wurde geladen.")
                 elif use_yahoo:
-                    # Lade Daten von Yahoo Finance
+                    # Lade Daten von Yahoo Finance mit den Parametern aus Option 3
                     data = fetcher.fetch_data(period=period, interval=interval, force_download=True)
                     st.success(
                         f"Daten für {symbol} mit Periode {period} und Intervall {interval} wurden von Yahoo Finance geladen.")
@@ -240,7 +244,7 @@ def load_data():
                     st.session_state.symbol = symbol
                     st.session_state.period = period
                     st.session_state.interval = interval
-                elif special_option == "Alle CSV-Dateien kombinieren":
+                elif special_option == "Alle nq-1m* Dateien kombinieren":
                     st.session_state.symbol = "Multiple"
                     st.session_state.period = "Custom"
                     st.session_state.interval = "Mixed"
