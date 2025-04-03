@@ -292,7 +292,16 @@ class DataProcessor:
         if selected_features is None:
             # Standardmäßige Feature-Auswahl
             essential_features = ['Open', 'High', 'Low', 'Close', 'Volume']
-            technical_features = ['SMA_20', 'EMA_9', 'RSI', 'MACD', 'BB_Middle', 'BB_Upper', 'BB_Lower']
+
+            # Prüfe, ob es sich um 1-Minuten-Daten handelt und geglättete Indikatoren vorhanden sind
+            if any(col.startswith('Smooth_') for col in df_ml.columns):
+                # Verwende geglättete Indikatoren für 1m-Daten
+                technical_features = ['SMA_20', 'EMA_9', 'Smooth_RSI', 'Smooth_MACD',
+                                      'BB_Middle', 'BB_Upper', 'BB_Lower', 'Smooth_ATR']
+            else:
+                # Standard technische Indikatoren für andere Zeitrahmen
+                technical_features = ['SMA_20', 'EMA_9', 'RSI', 'MACD',
+                                      'BB_Middle', 'BB_Upper', 'BB_Lower', 'ATR']
             features = essential_features + technical_features
         else:
             # Verwende die vom Benutzer ausgewählten Features
@@ -457,3 +466,121 @@ class DataProcessor:
         }
 
         return feature_categories
+
+    # Fügen Sie diese Funktion zu src/data/processor.py hinzu
+
+    def add_smoothed_indicators(self, df, interval='1d'):
+        """
+        Fügt geglättete Versionen der technischen Indikatoren hinzu.
+        Diese Funktion ist besonders nützlich für hochfrequente Daten wie 1-Minuten-Charts.
+
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            DataFrame mit OHLCV-Daten und Basis-Indikatoren
+        interval : str
+            Zeitintervall der Daten ('1m', '5m', '1h', '1d', etc.)
+
+        Returns:
+        --------
+        pd.DataFrame
+            DataFrame mit zusätzlichen geglätteten Indikatoren
+        """
+        # Kopie erstellen
+        df_smooth = df.copy()
+
+        # Glättungsfaktor basierend auf Interval bestimmen
+        if interval == '1m':
+            smoothing_period = 5
+        elif interval in ['2m', '5m', '15m']:
+            smoothing_period = 3
+        else:
+            # Für höhere Timeframes weniger Glättung notwendig
+            smoothing_period = 2
+
+        # Liste der zu glättenden Indikatoren
+        indicators_to_smooth = [
+            'RSI', 'MACD', 'MACD_Signal', 'MACD_Hist',
+            'STOCH_k', 'STOCH_d', 'ATR'
+        ]
+
+        # Anwenden der Glättung auf jeden Indikator
+        for indicator in indicators_to_smooth:
+            if indicator in df_smooth.columns:
+                # Verwende EMA für die Glättung
+                smooth_name = f"Smooth_{indicator}"
+                df_smooth[smooth_name] = df_smooth[indicator].ewm(
+                    span=smoothing_period, adjust=False
+                ).mean()
+
+        return df_smooth
+
+    # Fügen Sie diese Funktion zu src/data/processor.py hinzu
+
+    def optimize_dataframe_memory(self, df):
+        """
+        Optimiert den Speicherverbrauch eines DataFrame durch effizientere Datentypen.
+        Kann den Speicherverbrauch um 30-50% reduzieren.
+
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            DataFrame, das optimiert werden soll
+
+        Returns:
+        --------
+        pd.DataFrame
+            Speicheroptimiertes DataFrame
+        """
+        # Kopie erstellen, um das Original nicht zu verändern
+        result = df.copy()
+
+        # Speicherverbrauch vor der Optimierung
+        mem_before = result.memory_usage(deep=True).sum() / 1024 ** 2
+        print(f"Speicherverbrauch vor Optimierung: {mem_before:.2f} MB")
+
+        # Für jede Spalte den Datentyp optimieren
+        for col in result.columns:
+            # Numerische Spalten
+            if pd.api.types.is_numeric_dtype(result[col]):
+                # Integer-Spalten
+                if pd.api.types.is_integer_dtype(result[col]):
+                    # Umwandeln in kleinere Integer-Typen basierend auf Min/Max-Werten
+                    col_min = result[col].min()
+                    col_max = result[col].max()
+
+                    # Unsigned Integers für nicht-negative Werte
+                    if col_min >= 0:
+                        if col_max <= 255:
+                            result[col] = result[col].astype(np.uint8)
+                        elif col_max <= 65535:
+                            result[col] = result[col].astype(np.uint16)
+                        elif col_max <= 4294967295:
+                            result[col] = result[col].astype(np.uint32)
+                        else:
+                            result[col] = result[col].astype(np.uint64)
+                    else:
+                        # Signed Integers für Werte mit negativen Zahlen
+                        if col_min >= -128 and col_max <= 127:
+                            result[col] = result[col].astype(np.int8)
+                        elif col_min >= -32768 and col_max <= 32767:
+                            result[col] = result[col].astype(np.int16)
+                        elif col_min >= -2147483648 and col_max <= 2147483647:
+                            result[col] = result[col].astype(np.int32)
+                        else:
+                            result[col] = result[col].astype(np.int64)
+
+                # Float-Spalten - für Preisdaten ist float32 oft ausreichend genau
+                elif pd.api.types.is_float_dtype(result[col]):
+                    result[col] = result[col].astype(np.float32)
+
+            # Kategorie-Spalten (z.B. für Signal-Werte)
+            elif result[col].nunique() < 0.5 * len(result):
+                result[col] = result[col].astype('category')
+
+        # Speicherverbrauch nach der Optimierung
+        mem_after = result.memory_usage(deep=True).sum() / 1024 ** 2
+        print(f"Speicherverbrauch nach Optimierung: {mem_after:.2f} MB")
+        print(f"Speichereinsparung: {(1 - mem_after / mem_before) * 100:.2f}%")
+
+        return result

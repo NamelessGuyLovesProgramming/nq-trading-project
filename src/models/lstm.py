@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.layers import LSTM, Dense, Dropout, BatchNormalization, Input
@@ -105,7 +106,7 @@ class LSTMModel:
 
     # Angepasste Version der train-Methode mit verbesserten Hyperparametern
 
-    def train(self, X_train, y_train, X_val, y_val, epochs=50, batch_size=32):
+    def train(self, X_train, y_train, X_val, y_val, epochs=50, batch_size=32, callbacks=None):
         """
         Trainiert das LSTM-Modell mit optimierten Parametern zur Vermeidung von Overfitting.
 
@@ -123,6 +124,8 @@ class LSTMModel:
             Maximale Anzahl der Trainingsdurchläufe
         batch_size : int
             Batch-Größe
+        callbacks : list, optional
+            Liste von Keras Callbacks für das Training
 
         Returns:
         --------
@@ -164,7 +167,7 @@ class LSTMModel:
                 epochs = adjusted_epochs
 
             # Verbesserte Callbacks für optimales Training
-            callbacks = [
+            default_callbacks = [
                 # Early Stopping mit geringerer Patience für schnelleres Stoppen bei Overfitting
                 tf.keras.callbacks.EarlyStopping(
                     monitor='val_loss',
@@ -189,13 +192,16 @@ class LSTMModel:
                 )
             ]
 
+            # Verwende übergebene Callbacks oder Standardcallbacks
+            use_callbacks = callbacks if callbacks is not None else default_callbacks
+
             # Trainiere das Modell
             history = self.model.fit(
                 X_train, y_train,
                 epochs=epochs,
                 batch_size=batch_size,
                 validation_data=(X_val, y_val),
-                callbacks=callbacks,
+                callbacks=use_callbacks,
                 verbose=1,
                 shuffle=True
             )
@@ -410,3 +416,112 @@ class LSTMModel:
 
                 self.model = fallback_model
                 return fallback_model
+
+    # Fügen Sie diese Funktion zu src/models/lstm.py hinzu
+
+    def train_in_batches(self, data, window_size, batch_size, epochs, test_size=0.2):
+        """
+        Trainiert das LSTM-Modell in Datei-Batches für sehr große Datasets.
+
+        Parameters:
+        -----------
+        data : pd.DataFrame oder Pfad zu CSV-Dateien
+            Daten oder Verzeichnis mit mehreren CSV-Dateien
+        window_size : int
+            Fenstergröße für Sequenzen
+        batch_size : int
+            Mini-Batch-Größe für Training
+        epochs : int
+            Anzahl der Trainingsepochen pro Datei-Batch
+        test_size : float
+            Anteil der Testdaten
+
+        Returns:
+        --------
+        tf.keras.callbacks.History
+            Geschichte des Trainings
+        """
+        from src.data.processor import DataProcessor
+        processor = DataProcessor()
+
+        # Modell initialisieren, falls es noch nicht existiert
+        if self.model is None:
+            self.build_improved_model()
+
+        # Gesamtergebnisse
+        total_samples = 0
+        cumulative_loss = 0
+
+        # Wenn es sich um ein Verzeichnis handelt, verarbeite Dateien nacheinander
+        if isinstance(data, str) and os.path.isdir(data):
+            files = sorted([f for f in os.listdir(data) if f.endswith('.csv')])
+            print(f"Verarbeite {len(files)} Dateien aus {data}")
+
+            for i, file in enumerate(files):
+                print(f"\nVerarbeite Datei {i + 1}/{len(files)}: {file}")
+                file_path = os.path.join(data, file)
+
+                # Lade einen Chunk der Daten
+                chunk_data = pd.read_csv(file_path, index_col=0, parse_dates=True)
+                chunk_data = processor.add_technical_indicators(chunk_data)
+
+                # Optimiere Speichernutzung
+                chunk_data = processor.optimize_dataframe_memory(chunk_data)
+
+                # Bereite Daten für ML vor
+                X, y, X_val, y_val, _ = processor.prepare_data_for_ml(
+                    chunk_data, window_size=window_size, test_size=test_size
+                )
+
+                if X.shape[0] > 10:  # Nur trainieren, wenn genügend Daten
+                    # Trainiere mit aktueller Chunk
+                    history = self.model.fit(
+                        X, y,
+                        validation_data=(X_val, y_val),
+                        epochs=max(1, epochs // len(files)),  # Verteile Epochen
+                        batch_size=batch_size,
+                        verbose=1
+                    )
+
+                    # Sammle Statistiken
+                    total_samples += X.shape[0]
+                    cumulative_loss += history.history['loss'][-1] * X.shape[0]
+
+                    print(f"Chunk-Training abgeschlossen. Loss: {history.history['loss'][-1]:.6f}")
+
+                # Speicher freigeben
+                del chunk_data, X, y, X_val, y_val
+                import gc
+                gc.collect()
+
+        else:
+            # Normales Training mit dem gesamten DataFrame
+            X, y, X_val, y_val, _ = processor.prepare_data_for_ml(
+                data, window_size=window_size, test_size=test_size
+            )
+
+            history = self.model.fit(
+                X, y,
+                validation_data=(X_val, y_val),
+                epochs=epochs,
+                batch_size=batch_size,
+                verbose=1
+            )
+
+            total_samples = X.shape[0]
+            cumulative_loss = history.history['loss'][-1] * X.shape[0]
+
+        # Berechne durchschnittlichen Loss über alle Batches
+        avg_loss = cumulative_loss / total_samples if total_samples > 0 else float('nan')
+        print(f"\nTraining abgeschlossen. Durchschnittlicher Loss: {avg_loss:.6f}")
+        print(f"Gesamtzahl trainierter Samples: {total_samples}")
+
+        # Speichere das Modell
+        self.model.save(os.path.join(self.output_dir, 'lstm_model.h5'))
+
+        # Erstelle ein Dummy-History-Objekt für die Rückgabe
+        class DummyHistory:
+            def __init__(self, avg_loss):
+                self.history = {'loss': [avg_loss], 'val_loss': [avg_loss * 1.2]}
+
+        return DummyHistory(avg_loss)

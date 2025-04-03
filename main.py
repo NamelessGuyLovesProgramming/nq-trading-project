@@ -4,7 +4,7 @@ import os
 import argparse
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
-
+import tensorflow as tf
 # Projekt-Module
 from src.data.fetcher import DataFetcher
 from src.data.processor import DataProcessor
@@ -47,11 +47,16 @@ def main():
     # Neue Option für benutzerdefinierte Dateinamen
     parser.add_argument('--custom-file', type=str, default=None,
                         help='Name eines benutzerdefinierten Datensatzes im data/raw Verzeichnis (unterstützt auch Glob-Muster wie "nq-1m*.csv")')
-
+    parser.add_argument('--smooth-indicators', action='store_true',
+                        help='Technische Indikatoren glätten (automatisch für 1m-Daten)')
     # Option zum Kombinieren aller verfügbaren Jahre
     parser.add_argument('--combine-all-years', action='store_true',
                         help='Kombiniert alle nq-1m* Dateien für umfassenden Backtest')
-
+    # In main.py bei den Parser-Argumenten
+    parser.add_argument('--optimize-memory', action='store_true',
+                        help='Optimiere Speichernutzung für große Datensätze')
+    parser.add_argument('--batch-processing', action='store_true',
+                        help='Verarbeite Daten in Batches für sehr große Datasets')
     # Aktionsmodi
     parser.add_argument('--train', action='store_true', help='Train new ML model')
     parser.add_argument('--backtest', action='store_true', help='Run backtest')
@@ -205,6 +210,14 @@ def main():
             # Standardverhalten
             data = fetcher.fetch_data(period=args.period, interval=args.interval, force_download=True)
 
+        processor = DataProcessor()
+
+        # Speicheroptimierung für große Datasets
+        if args.interval == '1m' and (args.combine_all_years or
+                                      (args.custom_file and "1m" in args.custom_file)):
+            print("\nSpeicheroptimierung für große 1-Minuten-Datensätze...")
+            data = processor.optimize_dataframe_memory(data)
+
         # Prüfe, ob Daten erfolgreich geladen wurden
         if data is None or data.empty:
             print("Fehler: Keine Daten konnten geladen werden. Überprüfen Sie die Datei oder Parameter.")
@@ -231,6 +244,12 @@ def main():
         data_with_indicators = processor.add_technical_indicators(data)
         print(
             f"Technische Indikatoren hinzugefügt, neue Spalten: {set(data_with_indicators.columns) - set(data.columns)}")
+
+        if args.interval == '1m' or args.smooth_indicators:
+            print(f"Füge geglättete Indikatoren hinzu für Intervall {args.interval}...")
+            data_with_indicators = processor.add_smoothed_indicators(data_with_indicators, interval=args.interval)
+            print(
+                f"Geglättete Indikatoren hinzugefügt, neue Spalten: {set(data_with_indicators.columns) - set(data.columns)}")
     except Exception as e:
         print(f"Fehler beim Hinzufügen von Indikatoren: {e}")
         print("Fahre mit Originaldaten fort...")
