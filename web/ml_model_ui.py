@@ -491,361 +491,94 @@ def ml_model_ui(data=None):
             else:
                 st.warning(f"Keine Details für Modell '{selected_detail_model}' gefunden")
 
-    # Rest der Methode (Modelle verwalten und Backtest-Ergebnisse) bleibt unverändertone):
-    """
-    Verbesserte Streamlit UI für ML-Modell-Training und -Verwaltung mit erweiterten Funktionen.
+    # Rest der Methode (Modelle verwalten und Backtest-Ergebnisse) bleibt unverändert
 
-    Parameters:
-    -----------
-    data : pd.DataFrame, optional
-        DataFrame mit OHLCV-Daten und Indikatoren
-    """
-    st.header("ML-Modell-Verwaltung")
+    elif ml_action == "Backtest-Ergebnisse":
+        st.subheader("Backtest-Ergebnisse aktualisieren")
 
-    # Initialisiere den ModelManager
-    model_manager = ModelManager()
-    processor = DataProcessor()
-
-    # Automatisch nach Modellen suchen beim Start (ohne Button)
-    with st.spinner("Suche nach Modellen..."):
-        created_files = scan_for_orphaned_models()
-        if created_files:
-            st.success(f"{len(created_files)} neue Metadatendateien erstellt!")
-
-    # Sekundäres Menü für ML-Funktionen
-    ml_action = st.radio(
-        "Wählen Sie eine ML-Funktion:",
-        ["Modell trainieren", "Modelle verwalten", "Modelldetails", "Backtest-Ergebnisse"]
-    )
-
-    # Zeige verfügbare Features an
-    if data is not None:
-        feature_categories = processor.get_available_features()
-        all_features = []
-        for cat, feats in feature_categories.items():
-            all_features.extend(feats)
-
-        # Erfasse Datenbeschreibung für Modell-Metadaten einschließlich Quelldateinamen
-        source_files = data.attrs.get('source_files', ["Unbekannt"])
-        if isinstance(source_files, list) and len(source_files) > 0:
-            source_file_str = ", ".join(source_files) if len(
-                source_files) <= 3 else f"{source_files[0]}, {source_files[1]}, ... und {len(source_files) - 2} weitere"
-        else:
-            source_file_str = "Unbekannt"
-
-        data_source = {
-            "symbol": st.session_state.get("symbol", "Unknown"),
-            "period": st.session_state.get("period", "Unknown"),
-            "interval": st.session_state.get("interval", "Unknown"),
-            "data_points": len(data),
-            "date_range": f"{data.index[0].strftime('%Y-%m-%d %H:%M')} bis {data.index[-1].strftime('%Y-%m-%d %H:%M')}"
-            if isinstance(data.index, pd.DatetimeIndex) else "Unbekannt",
-            "source_files": source_file_str  # Hinzugefügt: Quell-Dateien
-        }
-    else:
-        feature_categories = {
-            "Basisdaten": ["Open", "High", "Low", "Close", "Volume"],
-            "Trend": ["SMA_20", "EMA_9", "SMA_50", "SMA_200"],
-            "Momentum": ["RSI", "MACD", "MACD_Signal", "MACD_Hist", "STOCH_k", "STOCH_d"],
-            "Volatilität": ["BB_Middle", "BB_Upper", "BB_Lower", "ATR"],
-            "Volumen": ["OBV"],
-            "Marktstruktur": ["Bullish_FVG", "Bearish_FVG", "FVG_Size"]
-        }
-        all_features = []
-        for cat, feats in feature_categories.items():
-            all_features.extend(feats)
-        data_source = None
-
-    # Funktionen basierend auf Auswahl
-    if ml_action == "Modell trainieren":
-        st.subheader("Neues Modell trainieren")
-
-        if data is None:
-            st.warning("Bitte laden Sie erst Daten auf der 'Daten laden'-Seite, um ein neues Modell zu trainieren.")
-        else:
-            # Zeige Informationen über die geladenen Daten
-            st.info(f"""
-            **Geladene Daten:**
-            - Symbol: {data_source['symbol']}
-            - Zeitraum: {data_source['period']}
-            - Intervall: {data_source['interval']}
-            - Datenpunkte: {data_source['data_points']:,}
-            - Zeitbereich: {data_source['date_range']}
-            - Quelldateien: {data_source['source_files']}
-            """)
-
-            # Modellname
-            model_name = st.text_input("Modellname", value=f"Model_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-
-            # Feature-Auswahl mit Kategorien
-            st.write("### Feature-Auswahl")
-
-            # Ein Expander für jede Feature-Kategorie
-            selected_features = []
-
-            for category, features in feature_categories.items():
-                with st.expander(f"{category} ({len(features)} Features)",
-                                 expanded=True if category == "Basisdaten" else False):
-                    # Prüfe, welche Features tatsächlich in den Daten verfügbar sind
-                    available_features = [f for f in features if f in data.columns]
-                    unavailable = [f for f in features if f not in data.columns]
-
-                    if unavailable:
-                        st.warning(f"⚠️ Folgende Features sind nicht verfügbar: {', '.join(unavailable)}")
-
-                    # Standardmäßig ausgewählte Features
-                    default_selections = []
-                    if category == "Basisdaten":
-                        default_selections = available_features  # Immer alle Basisdaten auswählen
-                    elif category == "Trend":
-                        default_selections = ["SMA_20", "EMA_9"] if all(
-                            f in available_features for f in ["SMA_20", "EMA_9"]) else []
-                    elif category == "Momentum":
-                        default_selections = ["RSI", "MACD"] if all(
-                            f in available_features for f in ["RSI", "MACD"]) else []
-                    elif category == "Volatilität":
-                        default_selections = ["BB_Middle", "BB_Upper", "BB_Lower"] if all(
-                            f in available_features for f in ["BB_Middle", "BB_Upper", "BB_Lower"]) else []
-
-                    # MultiSelect für diese Kategorie
-                    category_selection = st.multiselect(
-                        f"Wähle {category}-Features:",
-                        options=available_features,
-                        default=default_selections
-                    )
-
-                    selected_features.extend(category_selection)
-
-            # Zeige die Gesamtzahl der ausgewählten Features an
-            if selected_features:
-                # Anzeige der ausgewählten Features als formatierte Liste
-                st.info(f"**Ausgewählte Features ({len(selected_features)}):** {', '.join(selected_features)}")
-            else:
-                st.warning("⚠️ Bitte wählen Sie mindestens einige Features aus.")
-
-            # Trainingsparameter
-            st.write("### Trainingsparameter")
-            col1, col2 = st.columns(2)
-
-            with col1:
-                window_size = st.slider("Fenstergröße", min_value=10, max_value=120, value=60, step=5,
-                                        help="Anzahl der vergangenen Zeitschritte für die Vorhersage")
-                epochs = st.slider("Trainingsepochen", min_value=10, max_value=200, value=50, step=10,
-                                   help="Maximale Anzahl der Trainingsdurchläufe")
-
-            with col2:
-                batch_size = st.slider("Batch-Größe", min_value=8, max_value=128, value=32, step=8,
-                                       help="Anzahl der Samples pro Batch während des Trainings")
-                test_size = st.slider("Testdaten-Anteil", min_value=0.1, max_value=0.5, value=0.2, step=0.05,
-                                      help="Anteil der Daten, der für das Testen verwendet wird")
-
-            # Training starten
-            if st.button("Modell trainieren", disabled=len(selected_features) == 0):
-                with st.spinner("Modell wird trainiert..."):
-                    try:
-                        # Progress-Bar
-                        progress_bar = st.progress(0)
-
-                        # Starte Training (mit manueller Fortschrittsanzeige)
-                        metadata = model_manager.train_model(
-                            data=data,
-                            model_name=model_name,
-                            selected_features=selected_features,
-                            window_size=window_size,
-                            epochs=epochs,
-                            batch_size=batch_size,
-                            test_size=test_size,
-                            data_source=data_source  # Mit erweiterter Information
-                        )
-
-                        # Training abgeschlossen
-                        progress_bar.progress(1.0)
-
-                        # Zeige Ergebnisse
-                        st.success(f"✅ Modell '{model_name}' erfolgreich trainiert!")
-
-                        # Modellbewertung hinzufügen
-                        metrics = metadata.get("metrics", {})
-                        quality, explanation, score = evaluate_model_quality(metrics)
-
-                        # Gesamtbewertung mit Punktzahl anzeigen
-                        st.write(f"### Modellbewertung: {quality} ({score:.1f}/10)")
-                        st.write(explanation)
-
-                        # Verständliche Metrikerklärungen
-                        st.write("### Trainingsmetriken im Detail")
-                        metric_explanations = explain_metrics_in_plain_language(metrics)
-
-                        for metric, explanation in metric_explanations.items():
-                            with st.expander(f"{metric}: {metrics.get(metric.lower(), 0):.6f}",
-                                             expanded=True if metric == "RMSE" else False):
-                                st.write(explanation)
-
-                        # Basistabelle der Metriken beibehalten
-                        metrics_df = pd.DataFrame({
-                            "Metrik": ["MSE", "RMSE", "MAE", "MAPE"],
-                            "Wert": [
-                                f"{metrics.get('mse', 0):.6f}",
-                                f"{metrics.get('rmse', 0):.6f}",
-                                f"{metrics.get('mae', 0):.6f}",
-                                f"{metrics.get('mape', 0):.2f}%" if metrics.get('mape') is not None else "N/A"
-                            ]
-                        })
-                        st.table(metrics_df)
-
-                        # Modellzusammenfassung
-                        st.write("### Modellübersicht")
-                        st.json({
-                            "name": metadata.get("name", model_name),
-                            "created_at": metadata.get("created_at", datetime.now().isoformat()),
-                            "window_size": metadata.get("window_size", window_size),
-                            "features": metadata.get("features", selected_features),
-                            "training_samples": metadata.get("training_samples", 0),
-                            "testing_samples": metadata.get("testing_samples", 0),
-                            "data_source": metadata.get("data_source", data_source)
-                        })
-
-                    except Exception as e:
-                        st.error(f"❌ Fehler beim Training: {str(e)}")
-                        st.exception(e)
-
-    elif ml_action == "Modelldetails":
-        st.subheader("Modelldetails")
-
-        # Wähle entweder das vorausgewählte Modell oder zeige Dropdown
-        selected_detail_model = None
-
-        if hasattr(st.session_state, 'selected_model_for_details'):
-            selected_detail_model = st.session_state.selected_model_for_details
-
-        # Lade verfügbare Modelle für Dropdown
+        # Wähle ein Modell aus
         models = model_manager.list_available_models()
         model_names = [model.get("name", "Unbekannt") for model in models]
 
         if not model_names:
             st.info("Keine Modelle gefunden. Trainieren Sie zuerst ein Modell.")
         else:
-            # Modell auswählen, wenn nicht bereits vorausgewählt
-            if selected_detail_model is None or selected_detail_model not in model_names:
-                selected_detail_model = st.selectbox(
-                    "Modell auswählen:",
-                    options=model_names
-                )
+            # Modell für Backtest-Update auswählen
+            selected_model_for_backtest = st.selectbox(
+                "Modell für Backtest-Update auswählen:",
+                options=model_names,
+                key="backtest_model_select"
+            )
+
+            # Prüfe, ob Backtest-Ergebnisse verfügbar sind
+            if hasattr(st.session_state, 'backtest_results') and st.session_state.backtest_results is not None:
+                # Backtest-Ergebnisse anzeigen
+                results = st.session_state.backtest_results
+
+                # Informationen über die Backtest-Ergebnisse anzeigen
+                st.write("### Aktuelle Backtest-Ergebnisse")
+                metrics_df = pd.DataFrame({
+                    "Metrik": [
+                        "Gesamtrendite",
+                        "Maximaler Drawdown",
+                        "Anzahl der Trades",
+                        "Gewinnrate",
+                        "Sharpe Ratio"
+                    ],
+                    "Wert": [
+                        f"{(results['portfolio_value'].iloc[-1] / results['portfolio_value'].iloc[0] - 1) * 100:.2f}%",
+                        f"{results['max_drawdown']:.2f}%",
+                        f"{results['trades']}",
+                        f"{results['win_rate'] * 100:.2f}%" if results['win_rate'] is not None else "N/A",
+                        f"{results['sharpe_ratio']:.2f}" if results['sharpe_ratio'] is not None else "N/A"
+                    ]
+                })
+                st.table(metrics_df)
+
+                # Button zum Aktualisieren der Modellmetriken
+                if st.button("Backtest-Ergebnisse im Modell speichern"):
+                    # Implementiere die Aktualisierungsfunktion
+                    try:
+                        # Metadatenverzeichnis
+                        models_dir = 'output/models'
+                        metadata_dir = os.path.join(models_dir, 'metadata')
+                        metadata_path = os.path.join(metadata_dir, f"{selected_model_for_backtest}.json")
+
+                        # Prüfe, ob Metadatendatei existiert
+                        if not os.path.exists(metadata_path):
+                            st.error(f"Metadatendatei für {selected_model_for_backtest} nicht gefunden.")
+                        else:
+                            # Lade aktuelle Metadaten
+                            with open(metadata_path, 'r') as f:
+                                metadata = json.load(f)
+
+                            # Aktualisiere Backtest-Metriken
+                            metadata['backtest_metrics'] = {
+                                'total_return': float(
+                                    (results['portfolio_value'].iloc[-1] / results['portfolio_value'].iloc[0]) - 1),
+                                'max_drawdown': float(results['max_drawdown']),
+                                'trades': int(results['trades']) if 'trades' in results else 0,
+                                'win_rate': float(results['win_rate']) if 'win_rate' in results else None,
+                                'sharpe_ratio': float(results['sharpe_ratio']) if 'sharpe_ratio' in results else None
+                            }
+
+                            # Speichere aktualisierte Metadaten
+                            with open(metadata_path, 'w') as f:
+                                json.dump(metadata, f, indent=4)
+
+                            st.success(f"Backtest-Metriken für {selected_model_for_backtest} erfolgreich aktualisiert!")
+                    except Exception as e:
+                        st.error(f"Fehler beim Aktualisieren der Backtest-Metriken: {e}")
+                        st.exception(e)
             else:
-                st.info(f"Details für Modell: {selected_detail_model}")
-                # Ermögliche die Auswahl eines anderen Modells
-                if st.checkbox("Anderes Modell auswählen"):
-                    selected_detail_model = st.selectbox(
-                        "Modell auswählen:",
-                        options=model_names
-                    )
+                st.warning("Keine Backtest-Ergebnisse verfügbar. Bitte führen Sie zuerst einen Backtest durch.")
 
-            # Lade detaillierte Infos
-            model_info = model_manager.get_model_info(selected_detail_model)
-
-            if model_info:
-                # Modellbewertung hinzufügen
-                metrics = model_info.get("metrics", {})
-                quality, explanation, score = evaluate_model_quality(metrics)
-
-                st.write(f"## Modellbewertung: {quality} ({score:.1f}/10)")
-                st.write(explanation)
-
-                # Verständliche Metrikerklärungen
-                st.write("### Trainingsmetriken im Detail")
-                metric_explanations = explain_metrics_in_plain_language(metrics)
-
-                for metric, explanation in metric_explanations.items():
-                    with st.expander(f"{metric}: {metrics.get(metric.lower(), 0):.6f}",
-                                     expanded=True if metric == "RMSE" else False):
-                        st.write(explanation)
-
-                # Modellübersicht
-                st.write("## Modellübersicht")
-                overview_cols = st.columns(2)
-
-                with overview_cols[0]:
-                    st.write("**Basisinformationen:**")
-                    st.write(f"**Name:** {model_info.get('name', '')}")
-                    st.write(
-                        f"**Erstellt am:** {model_info.get('created_at', '').split('T')[0] if model_info.get('created_at', '') else ''}")
-                    st.write(f"**Fenstergröße:** {model_info.get('window_size', 0)}")
-                    st.write(f"**Trainingsepochen:** {model_info.get('epochs', 0)}")
-                    st.write(f"**Batch-Größe:** {model_info.get('batch_size', 0)}")
-
-                with overview_cols[1]:
-                    st.write("**Trainingsdetails:**")
-                    st.write(f"**Trainingsdaten:** {model_info.get('training_samples', 0):,} Samples")
-                    st.write(f"**Testdaten:** {model_info.get('testing_samples', 0):,} Samples")
-                    st.write(f"**Input-Shape:** {model_info.get('input_shape', [])}")
-                    if 'parameters' in model_info and 'total_params' in model_info.get('parameters', {}):
-                        st.write(f"**Modellparameter:** {model_info.get('parameters', {}).get('total_params', 0):,}")
-
-                # Datenquellen-Informationen, falls vorhanden
-                if 'data_source' in model_info and model_info['data_source']:
-                    data_src = model_info.get('data_source', {})
-                    st.write("### Trainingsquellen")
-                    st.write(f"**Symbol:** {data_src.get('symbol', 'Unbekannt')}")
-                    st.write(f"**Zeitraum:** {data_src.get('period', 'Unbekannt')}")
-                    st.write(f"**Intervall:** {data_src.get('interval', 'Unbekannt')}")
-                    st.write(f"**Datenpunkte:** {data_src.get('data_points', 0):,}")
-                    st.write(f"**Zeitbereich:** {data_src.get('date_range', 'Unbekannt')}")
-
-                    # Neue Information: Quelldateien
-                    st.write(f"**Quelldateien:** {data_src.get('source_files', 'Unbekannt')}")
-
-                # Verwendete Features - immer alle anzeigen
-                st.write("### Verwendete Features")
-                features = model_info.get("features", [])
-
-                if features:
-                    # Display all features directly
-                    st.write(", ".join(features))
-
-                    # For the additional categorized view
-                    st.write("#### Features nach Kategorien")
-                    # Group features by categories for better overview
-                    feature_by_category = {}
-                    unknown_features = []
-
-                    for feature in features:
-                        found = False
-                        for category, cat_features in feature_categories.items():
-                            if feature in cat_features:
-                                if category not in feature_by_category:
-                                    feature_by_category[category] = []
-                                feature_by_category[category].append(feature)
-                                found = True
-                                break
-
-                        if not found:
-                            unknown_features.append(feature)
-
-                    # Show features by categories
-                    for category, cat_features in feature_by_category.items():
-                        if cat_features:
-                            with st.expander(f"{category} ({len(cat_features)} Features)", expanded=True):
-                                st.write(", ".join(cat_features))
-
-                    # Show uncategorized features
-                    if unknown_features:
-                        with st.expander(f"Sonstige Features ({len(unknown_features)})", expanded=True):
-                            st.write(", ".join(unknown_features))
-                else:
-                    st.warning("Keine Feature-Informationen verfügbar.")
-
-                # Modellarchitektur mit vereinfachter Erklärung
-                st.write("## Modellarchitektur")
-                architecture_explanation = explain_model_architecture(model_info)
-                st.markdown(architecture_explanation)
-
-                # Zeige detaillierte Modellarchitektur in einem Expander
-                if 'parameters' in model_info and 'layers' in model_info.get('parameters', {}):
-                    with st.expander("Detaillierte Schichten", expanded=False):
-                        layers = model_info.get('parameters', {}).get('layers', [])
-                        for i, layer in enumerate(layers):
-                            st.write(f"{i + 1}. {layer}")
-            else:
-                st.warning(f"Keine Details für Modell '{selected_detail_model}' gefunden")
-
-    # Rest der Methode (Modelle verwalten und Backtest-Ergebnisse) bleibt unverändert
+                # Hilfe-Text
+                with st.expander("Wie führe ich einen Backtest durch?"):
+                    st.write("""
+                    1. Gehen Sie zum Hauptaktionsmenü auf 'Backtest durchführen'
+                    2. Wählen Sie Ihre Strategie ('ml' für das ML-Modell)
+                    3. Wenn Sie 'ml' wählen, laden Sie das Modell unter 'Modelle verwalten'
+                    4. Führen Sie den Backtest durch
+                    5. Kommen Sie hierher zurück, um die Ergebnisse zu speichern
+                    """)
