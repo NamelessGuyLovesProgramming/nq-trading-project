@@ -5,6 +5,7 @@ import numpy as np
 import tensorflow as tf
 from datetime import datetime
 from sklearn.preprocessing import MinMaxScaler
+import joblib
 
 from src.data.processor import DataProcessor
 from src.models.lstm import LSTMModel
@@ -118,6 +119,9 @@ class ModelManager:
         # Modell speichern
         model.model.save(model_file)
 
+        scaler_path = os.path.join(self.models_dir, f"{model_name}_scaler.joblib")
+        joblib.dump(scaler, scaler_path)
+
         # Vorhersagen und Metriken berechnen
         predictions = model.predict(X_test)
         # Verwende diesen speichereffizienten Ansatz:
@@ -194,6 +198,8 @@ class ModelManager:
 
         return metadata
 
+    # In src/models/model_manager.py, ändere die load_model-Methode:
+
     def load_model(self, model_name):
         """
         Lädt ein Modell und seinen Scaler.
@@ -234,11 +240,18 @@ class ModelManager:
             print(f"Fehler beim Laden der Metadaten: {e}")
             metadata = None
 
-        # Erstelle einen neuen Scaler (da wir den originalen nicht speichern können)
-        # Hierfür brauchen wir Trainingsdaten - dies ist ein Kompromiss
-        # In einer vollständigen Implementierung würden wir den Scaler serialisieren
+        # Erstelle einen neuen Scaler und TRAINIERE IHN MIT DUMMY-DATEN
+        # Dies ist der kritische Teil - wir müssen den Scaler mit etwas trainieren
         if model_name not in self.scalers:
-            self.scalers[model_name] = MinMaxScaler()
+            scaler_path = os.path.join(self.models_dir, f"{model_name}_scaler.joblib")
+            if os.path.exists(scaler_path):
+                self.scalers[model_name] = joblib.load(scaler_path)
+            else:
+                # Fallback mit Dummy-Daten
+                self.scalers[model_name] = MinMaxScaler()
+                feature_count = len(metadata.get('features', [])) if metadata else 5
+                dummy_data = np.zeros((10, feature_count))
+                self.scalers[model_name].fit(dummy_data)
 
         return self.models[model_name], self.scalers[model_name], metadata
 
