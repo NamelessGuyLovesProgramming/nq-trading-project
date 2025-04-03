@@ -131,7 +131,7 @@ from src.data.processor import DataProcessor
 from src.models.model_manager import ModelManager
 
 # Importiere die neuen Funktionen
-from model_evaluation import evaluate_model_quality, explain_metrics_in_plain_language, explain_model_architecture
+from src.models.model_evaluation import evaluate_model_quality, explain_metrics_in_plain_language, explain_model_architecture
 
 
 def ml_model_ui(data=None):
