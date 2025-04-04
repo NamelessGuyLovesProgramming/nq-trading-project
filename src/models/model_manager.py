@@ -10,6 +10,7 @@ import joblib
 from src.data.processor import DataProcessor
 from src.models.lstm import LSTMModel
 
+
 class ModelManager:
     """
     Klasse zur Verwaltung von ML-Modellen, einschließlich Training, Speicherung und Laden.
@@ -37,7 +38,7 @@ class ModelManager:
         self.scalers = {}
 
     def train_model(self, data, model_name, selected_features=None, window_size=60,
-                   epochs=50, batch_size=32, test_size=0.2, data_source=None):
+                    epochs=50, batch_size=32, test_size=0.2, data_source=None):
         """
         Trainiert ein neues Modell mit den angegebenen Parametern und Features.
 
@@ -285,7 +286,7 @@ class ModelManager:
 
     def delete_model(self, model_name):
         """
-        Löscht ein Modell und seine Metadaten.
+        Löscht ein Modell und alle zugehörigen Dateien (Metadaten, Scaler, etc.).
 
         Parameters:
         -----------
@@ -300,13 +301,22 @@ class ModelManager:
         model_name = self._sanitize_name(model_name)
         model_file = os.path.join(self.models_dir, f"{model_name}.h5")
         metadata_file = os.path.join(self.metadata_dir, f"{model_name}.json")
+        scaler_file = os.path.join(self.models_dir, f"{model_name}_scaler.joblib")
+
+        # Suche auch nach anderen zugehörigen Dateien mit dem Modellnamen
+        related_files = []
+        for file in os.listdir(self.models_dir):
+            if file.startswith(model_name + "_") or file == f"{model_name}.h5":
+                related_files.append(os.path.join(self.models_dir, file))
 
         success = True
+        files_deleted = []
 
         # Lösche Modelldatei
         if os.path.exists(model_file):
             try:
                 os.remove(model_file)
+                files_deleted.append(model_file)
             except Exception as e:
                 print(f"Fehler beim Löschen der Modelldatei: {e}")
                 success = False
@@ -315,9 +325,29 @@ class ModelManager:
         if os.path.exists(metadata_file):
             try:
                 os.remove(metadata_file)
+                files_deleted.append(metadata_file)
             except Exception as e:
                 print(f"Fehler beim Löschen der Metadatendatei: {e}")
                 success = False
+
+        # Lösche Scaler-Datei
+        if os.path.exists(scaler_file):
+            try:
+                os.remove(scaler_file)
+                files_deleted.append(scaler_file)
+            except Exception as e:
+                print(f"Fehler beim Löschen der Scaler-Datei: {e}")
+                success = False
+
+        # Lösche alle anderen zugehörigen Dateien
+        for file in related_files:
+            if os.path.exists(file) and file not in files_deleted:
+                try:
+                    os.remove(file)
+                    files_deleted.append(file)
+                except Exception as e:
+                    print(f"Fehler beim Löschen der zugehörigen Datei {file}: {e}")
+                    success = False
 
         # Entferne aus dem Speicher
         if model_name in self.models:
@@ -325,6 +355,7 @@ class ModelManager:
         if model_name in self.scalers:
             del self.scalers[model_name]
 
+        print(f"Modell {model_name} gelöscht. Erfolg: {success}. Gelöschte Dateien: {', '.join(files_deleted)}")
         return success
 
     def get_model_info(self, model_name):
