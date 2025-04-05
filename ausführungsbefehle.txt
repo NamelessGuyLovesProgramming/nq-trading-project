@@ -64,16 +64,3 @@ Verfügbare Intervalle (--interval)
 1mo - 1 Monat
 3mo - 3 Monate
 
-
-befehl;
-das ist das Projekt. bitte baue ein, das der chart :
-
-mit mausreiger runter: die x achse wird nach rechts geqätscht.
-
-Mauszeiger hoch: die xachse wird entqätscht, also es geht wieder nach links.
-
-mit strg +mauszeiger hoch: wird der chart beidseitig, von der position des mauszeiger aus, weggeqätscht und man kriegt mehr sicht auf die candles ( candles werden weniger)
-
-mit  strg + mauszeiger runter: wird beidsietig in richtung maus geqätscht.
-
-Man kann ebenfalls direkt auf die x achse oder y achse drücken und mit maushalten die achsen dehnen.
