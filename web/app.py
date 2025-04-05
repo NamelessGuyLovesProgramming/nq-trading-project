@@ -251,110 +251,52 @@ def load_data():
             f"Es werden Daten für {symbol} mit Periode {period} und Intervall {interval} von Yahoo Finance geladen.")
 
     # Füge einen Knopf hinzu, um den Ladevorgang zu starten
-    # Füge einen Knopf hinzu, um den Ladevorgang zu starten
     load_button_disabled = st.session_state.data_loading_status == 'loading'
     if st.button("Daten laden starten", key="load_data_button", disabled=load_button_disabled):
         # Setze den Status auf "Laden"
         st.session_state.data_loading_status = 'loading'
 
-        # Speichere wichtige Parameter in der Session
+        # Speichere wichtige Parameter als separate Variablen
+        selected_source_type = None
+        selected_file = None
+        yahoo_symbol = None
+        yahoo_period = None
+        yahoo_interval = None
+
         if use_yahoo:
-            st.session_state.symbol = symbol
-            st.session_state.period = period
-            st.session_state.interval = interval
-            st.session_state.data_source_type = 'yahoo'
+            selected_source_type = 'yahoo'
+            yahoo_symbol = symbol
+            yahoo_period = period
+            yahoo_interval = interval
         elif special_option == "Alle nq-1m* Dateien kombinieren":
-            st.session_state.data_source_type = 'combined'
+            selected_source_type = 'combined'
         elif custom_file:
-            st.session_state.custom_file = custom_file
-            st.session_state.data_source_type = 'custom_file'
+            selected_source_type = 'custom_file'
+            selected_file = custom_file
+            print(f"Ausgewählte Datei (beim Button-Klick): '{custom_file}'")
 
         # Starte Ladeprozess in einem separaten Thread
         import threading
         import time
 
-        def background_load_data():
-            try:
-                # Initialisiere alle benötigten Session-State-Variablen
-                if 'data_source_type' not in st.session_state:
-                    st.session_state.data_source_type = 'custom_file'
-
-                if 'symbol' not in st.session_state:
-                    st.session_state.symbol = DEFAULT_SYMBOL
-
-                if 'period' not in st.session_state:
-                    st.session_state.period = DEFAULT_PERIOD
-
-                if 'interval' not in st.session_state:
-                    st.session_state.interval = DEFAULT_INTERVAL
-
-                if 'custom_file' not in st.session_state:
-                    st.session_state.custom_file = ""
-
-                # Erstelle DataFetcher-Instanz
-                if st.session_state.data_source_type == 'yahoo':
-                    fetcher = DataFetcher(symbol=st.session_state.symbol)
-                    data = fetcher.fetch_data(
-                        period=st.session_state.period,
-                        interval=st.session_state.interval,
-                        force_download=True
-                    )
-                elif st.session_state.data_source_type == 'combined':
-                    fetcher = DataFetcher(symbol=st.session_state.symbol)
-                    data = fetcher.load_custom_file("nq-1m*.csv")
-                elif st.session_state.data_source_type == 'custom_file':
-                    fetcher = DataFetcher(symbol=st.session_state.symbol)
-                    data = fetcher.fetch_data(
-                        period=st.session_state.period,
-                        interval=st.session_state.interval,
-                        force_download=True,
-                        custom_file=st.session_state.custom_file
-                    )
-
-                # Fehlerprüfung
-                if data is None or data.empty:
-                    st.session_state.data_loading_status = 'error'
-                    st.session_state.data_loading_error = "Keine Daten konnten geladen werden. Überprüfen Sie die Parameter."
-                    return
-
-                # Füge technische Indikatoren hinzu
-                processor = DataProcessor()
-                data_with_indicators = processor.add_technical_indicators(data)
-
-                # Speichere das Ergebnis in der Session
-                st.session_state.data = data_with_indicators
-
-                # Symbol, Periode und Intervall speichern
-                if st.session_state.data_source_type == 'yahoo':
-                    pass  # Bereits gespeichert
-                elif st.session_state.data_source_type == 'combined':
-                    st.session_state.symbol = "Multiple"
-                    st.session_state.period = "Custom"
-                    st.session_state.interval = "Mixed"
-                elif st.session_state.data_source_type == 'custom_file':
-                    st.session_state.symbol = st.session_state.custom_file.split('.')[
-                        0]  # Verwende Dateinamen ohne Erweiterung
-                    st.session_state.period = "Custom"
-                    st.session_state.interval = "Custom"
-
-                # Aktualisiere Status
-                st.session_state.data_loading_status = 'completed'
-
-            except Exception as e:
-                import traceback
-                # Fehler protokollieren
-                st.session_state.data_loading_status = 'error'
-                st.session_state.data_loading_error = str(e)
-                traceback.print_exc()
-
-        # Thread starten
-        thread = threading.Thread(target=background_load_data)
-        thread.daemon = True  # Set as daemon so it won't block application exit
+        # Hintergrund-Thread mit Parametern starten
+        thread = threading.Thread(
+            target=background_load_data,
+            kwargs={
+                'source_type': selected_source_type,
+                'custom_file': selected_file,
+                'yahoo_symbol': yahoo_symbol,
+                'yahoo_period': yahoo_period,
+                'yahoo_interval': yahoo_interval
+            }
+        )
+        thread.daemon = True
         thread.start()
 
         # Hinweis anzeigen
         st.info(
-            "Daten werden im Hintergrund geladen. Sie können zu anderen Tabs wechseln, der Ladevorgang läuft weiter.")
+            "Daten werden im Hintergrund geladen. Sie können zu anderen Tabs wechseln, der Ladevorgang läuft weiter."
+        )
 
         # Trigger für Neuladung der Seite nach kurzer Verzögerung
         time.sleep(0.1)  # Kurze Verzögerung für UI-Update
@@ -1177,6 +1119,91 @@ def visualize_data():
             max_points=max_points
         )
 
+
+def background_load_data(source_type, custom_file=None, yahoo_symbol=None, yahoo_period=None, yahoo_interval=None):
+    try:
+        # Parameter in Session speichern (für spätere Verwendung)
+        st.session_state.data_source_type = source_type
+        if yahoo_symbol:
+            st.session_state.symbol = yahoo_symbol
+        if yahoo_period:
+            st.session_state.period = yahoo_period
+        if yahoo_interval:
+            st.session_state.interval = yahoo_interval
+        if custom_file:
+            st.session_state.custom_file = custom_file
+
+        # Standardwerte für fehlende Parameter
+        if not hasattr(st.session_state, 'symbol') or not st.session_state.symbol:
+            st.session_state.symbol = DEFAULT_SYMBOL
+        if not hasattr(st.session_state, 'period') or not st.session_state.period:
+            st.session_state.period = DEFAULT_PERIOD
+        if not hasattr(st.session_state, 'interval') or not st.session_state.interval:
+            st.session_state.interval = DEFAULT_INTERVAL
+
+        # Erstelle DataFetcher-Instanz
+        fetcher = DataFetcher(symbol=st.session_state.symbol)
+
+        # Debug-Ausgabe
+        print(f"Lade Daten mit data_source_type: {source_type}")
+
+        if source_type == 'yahoo':
+            print(
+                f"Lade Yahoo Finance Daten: {yahoo_symbol or st.session_state.symbol}, {yahoo_period or st.session_state.period}, {yahoo_interval or st.session_state.interval}")
+            data = fetcher.fetch_data(
+                period=yahoo_period or st.session_state.period,
+                interval=yahoo_interval or st.session_state.interval,
+                force_download=True
+            )
+        elif source_type == 'combined':
+            print("Kombiniere alle nq-1m* Dateien für umfassenden Backtest...")
+            data = fetcher.load_custom_file("nq-1m*.csv")
+        elif source_type == 'custom_file':
+            if not custom_file:
+                st.session_state.data_loading_status = 'error'
+                st.session_state.data_loading_error = "Kein Dateiname angegeben. Bitte wählen Sie eine Datei aus."
+                return
+
+            print(f"Lade benutzerdefinierte Datei: {custom_file}")
+
+            # Direkter Aufruf von load_custom_file für benutzerdefinierte Dateien
+            data = fetcher.load_custom_file(custom_file)
+
+        # Fehlerprüfung
+        if data is None or data.empty:
+            st.session_state.data_loading_status = 'error'
+            st.session_state.data_loading_error = "Keine Daten konnten geladen werden. Überprüfen Sie die Parameter."
+            return
+
+        # Füge technische Indikatoren hinzu
+        processor = DataProcessor()
+        data_with_indicators = processor.add_technical_indicators(data)
+
+        # Speichere das Ergebnis in der Session
+        st.session_state.data = data_with_indicators
+
+        # Symbol, Periode und Intervall speichern
+        if source_type == 'yahoo':
+            pass  # Bereits gespeichert
+        elif source_type == 'combined':
+            st.session_state.symbol = "Multiple"
+            st.session_state.period = "Custom"
+            st.session_state.interval = "Mixed"
+        elif source_type == 'custom_file':
+            import os
+            st.session_state.symbol = os.path.splitext(custom_file)[0]  # Verwende Dateinamen ohne Erweiterung
+            st.session_state.period = "Custom"
+            st.session_state.interval = "Custom"
+
+        # Aktualisiere Status
+        st.session_state.data_loading_status = 'completed'
+
+    except Exception as e:
+        import traceback
+        # Fehler protokollieren
+        st.session_state.data_loading_status = 'error'
+        st.session_state.data_loading_error = str(e)
+        traceback.print_exc()
 
 def main():
     # Wenn ein Tabwechsel erkannt wird, setze Scrollposition zurück
