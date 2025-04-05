@@ -64,6 +64,14 @@ if 'signals' not in st.session_state:
     st.session_state.signals = None
 if 'model' not in st.session_state:
     st.session_state.model = None
+if 'data_loading_status' not in st.session_state:
+    st.session_state.data_loading_status = 'not_started'
+if 'model_loading_status' not in st.session_state:
+    st.session_state.model_loading_status = 'not_started'
+if 'backtest_status' not in st.session_state:
+    st.session_state.backtest_status = 'not_started'
+if 'previous_action' not in st.session_state:
+    st.session_state.previous_action = None
 
 # Seitenleiste für Hauptaktionen (ohne Datenparameter)
 with st.sidebar:
@@ -81,19 +89,36 @@ with st.sidebar:
     st.write("### Aktueller Status")
 
     # Zeige Status der geladenen Daten an
-    if 'data' in st.session_state and st.session_state.data is not None:
+    if st.session_state.data_loading_status == 'loading':
+        data_info = f"""
+        **Daten werden geladen...** ⏳
+        - Symbol: {st.session_state.get('symbol', 'Unbekannt')}
+        - Zeitraum: {st.session_state.get('period', 'Unbekannt')}
+        - Intervall: {st.session_state.get('interval', 'Unbekannt')}
+        """
+        st.info(data_info)
+    elif 'data' in st.session_state and st.session_state.data is not None:
         data_info = f"""
         **Daten geladen:** ✅
         - Symbol: {st.session_state.get('symbol', 'Unbekannt')}
         - Zeitraum: {st.session_state.get('period', 'Unbekannt')}
+        - Intervall: {st.session_state.get('interval', 'Unbekannt')}
         - Datenpunkte: {len(st.session_state.data):,}
         """
         st.info(data_info)
+    elif st.session_state.data_loading_status == 'error':
+        error_msg = st.session_state.get('data_loading_error', 'Unbekannter Fehler')
+        st.error(f"**Daten:** ❌ Fehler beim Laden: {error_msg}")
     else:
         st.warning("**Daten:** ❌ Nicht geladen")
 
     # Zeige Status des geladenen Modells an
-    if hasattr(st.session_state, 'ml_model') and st.session_state.ml_model is not None:
+    if st.session_state.model_loading_status == 'loading':
+        model_info = f"""
+        **ML-Modell wird geladen...** ⏳
+        """
+        st.info(model_info)
+    elif hasattr(st.session_state, 'ml_model') and st.session_state.ml_model is not None:
         model_name = st.session_state.ml_metadata.get('name', 'Unbekannt')
         model_info = f"""
         **ML-Modell geladen:** ✅
@@ -102,8 +127,28 @@ with st.sidebar:
         - Features: {len(st.session_state.ml_metadata.get('features', []))}
         """
         st.info(model_info)
+    elif st.session_state.model_loading_status == 'error':
+        error_msg = st.session_state.get('model_loading_error', 'Unbekannter Fehler')
+        st.error(f"**ML-Modell:** ❌ Fehler beim Laden: {error_msg}")
     else:
         st.warning("**ML-Modell:** ❌ Nicht geladen")
+
+    # Zeige Status des Backtests an
+    if st.session_state.backtest_status == 'running':
+        backtest_info = f"""
+        **Backtest wird ausgeführt...** ⏳
+        """
+        st.info(backtest_info)
+    elif st.session_state.backtest_status == 'completed' and 'backtest_results' in st.session_state and st.session_state.backtest_results is not None:
+        backtest_info = f"""
+        **Backtest abgeschlossen:** ✅
+        - Strategie: {st.session_state.get('strategy_type', 'Unbekannt')}
+        - Trades: {st.session_state.backtest_results.get('trades', 0)}
+        """
+        st.info(backtest_info)
+    elif st.session_state.backtest_status == 'error':
+        error_msg = st.session_state.get('backtest_error', 'Unbekannter Fehler')
+        st.error(f"**Backtest:** ❌ Fehler: {error_msg}")
 
 
 # Daten laden
@@ -206,88 +251,114 @@ def load_data():
             f"Es werden Daten für {symbol} mit Periode {period} und Intervall {interval} von Yahoo Finance geladen.")
 
     # Füge einen Knopf hinzu, um den Ladevorgang zu starten
-    if st.button("Daten laden starten", key="load_data_button"):
-        with st.spinner("Daten werden geladen..."):
-            try:
-                # Erstelle DataFetcher-Instanz
-                # Für Yahoo Finance verwenden wir die Parameter aus der Option 3
-                if use_yahoo:
-                    fetcher = DataFetcher(symbol=symbol)
-                else:
-                    # Für andere Optionen verwenden wir den Standardwert oder den letzten gespeicherten Wert
-                    fetcher = DataFetcher(symbol=st.session_state.get("symbol", DEFAULT_SYMBOL))
+    # Füge einen Knopf hinzu, um den Ladevorgang zu starten
+    load_button_disabled = st.session_state.data_loading_status == 'loading'
+    if st.button("Daten laden starten", key="load_data_button", disabled=load_button_disabled):
+        # Setze den Status auf "Laden"
+        st.session_state.data_loading_status = 'loading'
 
-                # Entscheide, welche Daten geladen werden sollen basierend auf den Optionen
-                if special_option == "Alle nq-1m* Dateien kombinieren":
-                    # Lade und kombiniere alle nq-1m Dateien
-                    data = fetcher.load_custom_file("nq-1m*.csv")
-                    st.success("Alle nq-1m* Dateien wurden kombiniert und geladen.")
-                elif custom_file:
-                    # Lade die ausgewählte benutzerdefinierte Datei
+        # Speichere wichtige Parameter in der Session
+        if use_yahoo:
+            st.session_state.symbol = symbol
+            st.session_state.period = period
+            st.session_state.interval = interval
+            st.session_state.data_source_type = 'yahoo'
+        elif special_option == "Alle nq-1m* Dateien kombinieren":
+            st.session_state.data_source_type = 'combined'
+        elif custom_file:
+            st.session_state.custom_file = custom_file
+            st.session_state.data_source_type = 'custom_file'
+
+        # Starte Ladeprozess in einem separaten Thread
+        import threading
+        import time
+
+        def background_load_data():
+            try:
+                # Initialisiere alle benötigten Session-State-Variablen
+                if 'data_source_type' not in st.session_state:
+                    st.session_state.data_source_type = 'custom_file'
+
+                if 'symbol' not in st.session_state:
+                    st.session_state.symbol = DEFAULT_SYMBOL
+
+                if 'period' not in st.session_state:
+                    st.session_state.period = DEFAULT_PERIOD
+
+                if 'interval' not in st.session_state:
+                    st.session_state.interval = DEFAULT_INTERVAL
+
+                if 'custom_file' not in st.session_state:
+                    st.session_state.custom_file = ""
+
+                # Erstelle DataFetcher-Instanz
+                if st.session_state.data_source_type == 'yahoo':
+                    fetcher = DataFetcher(symbol=st.session_state.symbol)
                     data = fetcher.fetch_data(
-                        period=st.session_state.get("period", DEFAULT_PERIOD),
-                        interval=st.session_state.get("interval", DEFAULT_INTERVAL),
-                        force_download=True,
-                        custom_file=custom_file
+                        period=st.session_state.period,
+                        interval=st.session_state.interval,
+                        force_download=True
                     )
-                    st.success(f"Benutzerdefinierte Datei '{custom_file}' wurde geladen.")
-                elif use_yahoo:
-                    # Lade Daten von Yahoo Finance mit den Parametern aus Option 3
-                    data = fetcher.fetch_data(period=period, interval=interval, force_download=True)
-                    st.success(
-                        f"Daten für {symbol} mit Periode {period} und Intervall {interval} wurden von Yahoo Finance geladen.")
-                else:
-                    st.error("Bitte wählen Sie eine Datenoption aus.")
-                    return None
+                elif st.session_state.data_source_type == 'combined':
+                    fetcher = DataFetcher(symbol=st.session_state.symbol)
+                    data = fetcher.load_custom_file("nq-1m*.csv")
+                elif st.session_state.data_source_type == 'custom_file':
+                    fetcher = DataFetcher(symbol=st.session_state.symbol)
+                    data = fetcher.fetch_data(
+                        period=st.session_state.period,
+                        interval=st.session_state.interval,
+                        force_download=True,
+                        custom_file=st.session_state.custom_file
+                    )
 
                 # Fehlerprüfung
                 if data is None or data.empty:
-                    st.error("Keine Daten konnten geladen werden. Überprüfen Sie die Parameter.")
-                    return None
-
-                # Zeige Datenübersicht
-                st.write(f"Datenzeitraum: {data.index[0]} bis {data.index[-1]}")
-                st.write(f"Anzahl der Datenpunkte: {len(data)}")
-
-                # Quell-Dateien anzeigen, falls vorhanden
-                if hasattr(data, 'attrs') and 'source_files' in data.attrs:
-                    source_files = data.attrs['source_files']
-                    if len(source_files) <= 5:
-                        st.write(f"Quelldateien: {', '.join(source_files)}")
-                    else:
-                        st.write(f"Quelldateien: {', '.join(source_files[:3])} und {len(source_files) - 3} weitere...")
+                    st.session_state.data_loading_status = 'error'
+                    st.session_state.data_loading_error = "Keine Daten konnten geladen werden. Überprüfen Sie die Parameter."
+                    return
 
                 # Füge technische Indikatoren hinzu
                 processor = DataProcessor()
                 data_with_indicators = processor.add_technical_indicators(data)
 
-                # Zeige die ersten Zeilen
-                st.subheader("Datenübersicht (erste 5 Zeilen)")
-                st.dataframe(data_with_indicators.head())
-
-                # Speichere in Session-State einschließlich der Quellinformationen
+                # Speichere das Ergebnis in der Session
                 st.session_state.data = data_with_indicators
 
                 # Symbol, Periode und Intervall speichern
-                if use_yahoo:
-                    st.session_state.symbol = symbol
-                    st.session_state.period = period
-                    st.session_state.interval = interval
-                elif special_option == "Alle nq-1m* Dateien kombinieren":
+                if st.session_state.data_source_type == 'yahoo':
+                    pass  # Bereits gespeichert
+                elif st.session_state.data_source_type == 'combined':
                     st.session_state.symbol = "Multiple"
                     st.session_state.period = "Custom"
                     st.session_state.interval = "Mixed"
-                elif custom_file:
-                    st.session_state.symbol = custom_file.split('.')[0]  # Verwende Dateinamen ohne Erweiterung
+                elif st.session_state.data_source_type == 'custom_file':
+                    st.session_state.symbol = st.session_state.custom_file.split('.')[
+                        0]  # Verwende Dateinamen ohne Erweiterung
                     st.session_state.period = "Custom"
                     st.session_state.interval = "Custom"
 
-                return data_with_indicators
+                # Aktualisiere Status
+                st.session_state.data_loading_status = 'completed'
 
             except Exception as e:
-                st.error(f"Fehler beim Laden der Daten: {e}")
-                st.exception(e)
-                return None
+                import traceback
+                # Fehler protokollieren
+                st.session_state.data_loading_status = 'error'
+                st.session_state.data_loading_error = str(e)
+                traceback.print_exc()
+
+        # Thread starten
+        thread = threading.Thread(target=background_load_data)
+        thread.daemon = True  # Set as daemon so it won't block application exit
+        thread.start()
+
+        # Hinweis anzeigen
+        st.info(
+            "Daten werden im Hintergrund geladen. Sie können zu anderen Tabs wechseln, der Ladevorgang läuft weiter.")
+
+        # Trigger für Neuladung der Seite nach kurzer Verzögerung
+        time.sleep(0.1)  # Kurze Verzögerung für UI-Update
+        st.rerun()
     else:
         # Zeige einen Hinweis, wenn noch keine Daten geladen wurden
         if st.session_state.data is None:
@@ -622,14 +693,36 @@ def run_backtest():
             ) / 100.0
 
     # Backtest starten
-    if st.button("Backtest starten"):
-        with st.spinner("Backtest wird durchgeführt..."):
+    # Backtest starten
+    # Backtest starten
+    backtest_button_disabled = st.session_state.backtest_status == 'running'
+    if st.button("Backtest starten", disabled=backtest_button_disabled):
+        # Setze Status auf "Ausführen"
+        st.session_state.backtest_status = 'running'
+        st.session_state.strategy_type = strategy_type  # Speichere für Status-Anzeige
+
+        # Starte Backtest in einem Thread
+        import threading
+        import time
+
+        def background_run_backtest():
             try:
+                # Progress-Bar und Status im Hauptfenster
+                progress_placeholder = st.empty()
+                status_placeholder = st.empty()
+
+                progress_placeholder.progress(0.1)
+                status_placeholder.text("Strategie wird initialisiert...")
+
                 # Erstelle die ausgewählte Strategie
                 if strategy_type == "ml":
                     # Lade oder verwende das Modell
+                    progress_placeholder.progress(0.2)
+                    status_placeholder.text("ML-Modell wird vorbereitet...")
+
                     if not model_loaded:
-                        st.error("Kein ML-Modell geladen. Bitte laden Sie zuerst ein Modell.")
+                        st.session_state.backtest_status = 'error'
+                        st.session_state.backtest_error = "Kein ML-Modell geladen. Bitte laden Sie zuerst ein Modell."
                         return
                     else:
                         # Verwende das trainierte Modell aus der Session
@@ -645,6 +738,8 @@ def run_backtest():
                         )
 
                 elif strategy_type == "mean_reversion":
+                    progress_placeholder.progress(0.2)
+                    status_placeholder.text("Mean-Reversion-Strategie wird initialisiert...")
                     strategy = MeanReversionStrategy(
                         rsi_overbought=rsi_overbought,
                         rsi_oversold=rsi_oversold,
@@ -652,12 +747,16 @@ def run_backtest():
                     )
 
                 elif strategy_type == "volume":
+                    progress_placeholder.progress(0.2)
+                    status_placeholder.text("Volumen-Strategie wird initialisiert...")
                     strategy = VolumeProfileStrategy(
                         volume_threshold=volume_threshold,
                         lookback=lookback
                     )
 
                 elif strategy_type == "combined":
+                    progress_placeholder.progress(0.2)
+                    status_placeholder.text("Kombinierte Strategie wird initialisiert...")
                     weights = {
                         'trend': trend_weight,
                         'momentum': momentum_weight,
@@ -669,9 +768,13 @@ def run_backtest():
                     )
 
                 elif strategy_type == "regime":
+                    progress_placeholder.progress(0.2)
+                    status_placeholder.text("Marktregime-Strategie wird initialisiert...")
                     strategy = MarketRegimeStrategy()
 
                 elif strategy_type == "ensemble":
+                    progress_placeholder.progress(0.2)
+                    status_placeholder.text("Ensemble-Strategie wird initialisiert...")
                     # Erstelle mehrere Strategien für das Ensemble
                     mr_strategy = MeanReversionStrategy(
                         rsi_overbought=70,
@@ -691,6 +794,8 @@ def run_backtest():
 
                 # Optional: Mit Risikomanagement umhüllen
                 if risk_management:
+                    progress_placeholder.progress(0.3)
+                    status_placeholder.text("Risikomanagement wird angewendet...")
                     original_strategy = strategy
 
                     atr_multiplier = 1.5
@@ -707,6 +812,8 @@ def run_backtest():
                     )
 
                 # Backtest durchführen
+                progress_placeholder.progress(0.4)
+                status_placeholder.text("Backtest wird ausgeführt...")
                 backtest_engine = BacktestEngine(
                     st.session_state.data,
                     strategy,
@@ -715,36 +822,17 @@ def run_backtest():
                 )
                 results = backtest_engine.run()
 
-                # Speichere Ergebnisse und Signale
+                # Speichere Engine und Ergebnisse für spätere Verwendung
+                st.session_state.backtest_engine = backtest_engine
                 st.session_state.backtest_results = results
                 st.session_state.signals = strategy.generate_signals(st.session_state.data)
+                # Auch Parameter speichern, die für die Visualisierung benötigt werden
+                st.session_state.initial_capital = initial_capital
+                st.session_state.commission = commission
+                st.session_state.strategy = strategy
 
-                # Zeige Ergebnisse
-                st.subheader("Backtest-Ergebnisse")
-
-                # Formatiere Kennzahlen
-                metrics_df = pd.DataFrame({
-                    "Metrik": [
-                        "Gesamtrendite",
-                        "Maximaler Drawdown",
-                        "Anzahl der Trades",
-                        "Gewinnrate",
-                        "Sharpe Ratio"
-                    ],
-                    "Wert": [
-                        f"{(results['portfolio_value'].iloc[-1] / initial_capital - 1) * 100:.2f}%",
-                        f"{results['max_drawdown']:.2f}%",
-                        f"{results['trades']}",
-                        f"{results['win_rate'] * 100:.2f}%" if results['win_rate'] is not None else "N/A",
-                        f"{results['sharpe_ratio']:.2f}" if results['sharpe_ratio'] is not None else "N/A"
-                    ]
-                })
-
-                st.table(metrics_df)
-
-                # Zeige Chart
-                fig = backtest_engine.plot_results()
-                st.pyplot(fig)
+                progress_placeholder.progress(0.7)
+                status_placeholder.text("Metriken werden berechnet...")
 
                 # Berechne Benchmark-Renditen (Buy & Hold)
                 benchmark_returns = st.session_state.data['Close'].pct_change()
@@ -755,47 +843,123 @@ def run_backtest():
                     benchmark_returns=benchmark_returns
                 )
 
-                # Zeige erweiterte Metriken
-                st.subheader("Erweiterte Performance-Metriken")
+                progress_placeholder.progress(0.9)
+                status_placeholder.text("Visualisierung wird erstellt...")
 
-                # Erstelle eine schönere Tabelle
-                metrics_to_show = [
-                    "annualized_return", "annualized_volatility",
-                    "calmar_ratio", "profit_factor", "alpha", "beta"
-                ]
+                # Aktualisiere Status
+                st.session_state.backtest_status = 'completed'
+                st.session_state.backtest_metrics = additional_metrics
 
-                metrics_names = {
-                    "annualized_return": "Annualisierte Rendite",
-                    "annualized_volatility": "Annualisierte Volatilität",
-                    "calmar_ratio": "Calmar Ratio",
-                    "profit_factor": "Profit Faktor",
-                    "alpha": "Alpha",
-                    "beta": "Beta"
-                }
-
-                adv_metrics = []
-                for metric in metrics_to_show:
-                    if metric in additional_metrics and additional_metrics[metric] is not None:
-                        value = additional_metrics[metric]
-                        if metric == "annualized_return":
-                            value = f"{value * 100:.2f}%"
-                        elif metric == "annualized_volatility":
-                            value = f"{value * 100:.2f}%"
-                        else:
-                            value = f"{value:.4f}"
-
-                        adv_metrics.append({
-                            "Metrik": metrics_names.get(metric, metric),
-                            "Wert": value
-                        })
-
-                st.table(pd.DataFrame(adv_metrics))
-
-                st.success("Backtest erfolgreich durchgeführt!")
+                progress_placeholder.progress(1.0)
+                status_placeholder.text("Backtest abgeschlossen!")
 
             except Exception as e:
-                st.error(f"Fehler während des Backtests: {e}")
-                st.exception(e)
+                import traceback
+                # Fehler protokollieren
+                st.session_state.backtest_status = 'error'
+                st.session_state.backtest_error = str(e)
+                traceback.print_exc()
+
+        # Thread starten
+        thread = threading.Thread(target=background_run_backtest)
+        thread.daemon = True
+        thread.start()
+
+        # Hinweis anzeigen
+        st.info(
+            "Backtest wird im Hintergrund ausgeführt. Sie können zu anderen Tabs wechseln, der Prozess läuft weiter.")
+
+        # Trigger für Neuladung der Seite nach kurzer Verzögerung
+        time.sleep(0.1)  # Kurze Verzögerung für UI-Update
+        st.rerun()
+
+    # Zeige Ergebnisse, nur wenn der Backtest abgeschlossen ist und Ergebnisse vorhanden sind
+    if st.session_state.backtest_status == 'completed' and 'backtest_results' in st.session_state and st.session_state.backtest_results is not None:
+        results = st.session_state.backtest_results
+
+        # Zeige Ergebnisse
+        st.subheader("Backtest-Ergebnisse")
+
+        # Formatiere Kennzahlen
+        metrics_df = pd.DataFrame({
+            "Metrik": [
+                "Gesamtrendite",
+                "Maximaler Drawdown",
+                "Anzahl der Trades",
+                "Gewinnrate",
+                "Sharpe Ratio"
+            ],
+            "Wert": [
+                f"{(results['portfolio_value'].iloc[-1] / st.session_state.initial_capital - 1) * 100:.2f}%",
+                f"{results['max_drawdown']:.2f}%",
+                f"{results['trades']}",
+                f"{results['win_rate'] * 100:.2f}%" if results['win_rate'] is not None else "N/A",
+                f"{results['sharpe_ratio']:.2f}" if results['sharpe_ratio'] is not None else "N/A"
+            ]
+        })
+
+        st.table(metrics_df)
+
+        # Zeige Chart - verwende die gespeicherte Engine aus dem Session State
+        if 'backtest_engine' in st.session_state:
+            fig = st.session_state.backtest_engine.plot_results()
+            st.pyplot(fig)
+        else:
+            # Alternativ: Erstelle eine neue Engine-Instanz für das Plotting
+            temp_engine = BacktestEngine(
+                st.session_state.data,
+                st.session_state.strategy if 'strategy' in st.session_state else None,
+                initial_capital=st.session_state.initial_capital,
+                commission=st.session_state.commission
+            )
+            temp_engine.results = results
+            fig = temp_engine.plot_results()
+            st.pyplot(fig)
+
+        # Zeige erweiterte Metriken
+        if 'backtest_metrics' in st.session_state:
+            additional_metrics = st.session_state.backtest_metrics
+
+            st.subheader("Erweiterte Performance-Metriken")
+
+            # Erstelle eine schönere Tabelle
+            metrics_to_show = [
+                "annualized_return", "annualized_volatility",
+                "calmar_ratio", "profit_factor", "alpha", "beta"
+            ]
+
+            metrics_names = {
+                "annualized_return": "Annualisierte Rendite",
+                "annualized_volatility": "Annualisierte Volatilität",
+                "calmar_ratio": "Calmar Ratio",
+                "profit_factor": "Profit Faktor",
+                "alpha": "Alpha",
+                "beta": "Beta"
+            }
+
+            adv_metrics = []
+            for metric in metrics_to_show:
+                if metric in additional_metrics and additional_metrics[metric] is not None:
+                    value = additional_metrics[metric]
+                    if metric == "annualized_return":
+                        value = f"{value * 100:.2f}%"
+                    elif metric == "annualized_volatility":
+                        value = f"{value * 100:.2f}%"
+                    else:
+                        value = f"{value:.4f}"
+
+                    adv_metrics.append({
+                        "Metrik": metrics_names.get(metric, metric),
+                        "Wert": value
+                    })
+
+            st.table(pd.DataFrame(adv_metrics))
+
+    elif st.session_state.backtest_status == 'running':
+        st.info("Backtest wird ausgeführt, bitte warten...")
+
+    elif st.session_state.backtest_status == 'error':
+        st.error(f"Fehler beim Backtest: {st.session_state.get('backtest_error', 'Unbekannter Fehler')}")
 
 
 def visualize_data():
@@ -1015,6 +1179,19 @@ def visualize_data():
 
 
 def main():
+    # Wenn ein Tabwechsel erkannt wird, setze Scrollposition zurück
+    if 'previous_action' in st.session_state and st.session_state.previous_action != action:
+        st.session_state.previous_action = action
+        # Skript für Scroll nach oben
+        js = """
+        <script>
+            // Scroll zum Seitenanfang
+            window.scrollTo({top: 0, behavior: 'smooth'});
+        </script>
+        """
+        st.markdown(js, unsafe_allow_html=True)
+    else:
+        st.session_state.previous_action = action
     # Aktionen basierend auf ausgewähltem Tab
     if action == "Daten laden":
         load_data()
