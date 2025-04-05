@@ -8,16 +8,3 @@ plotly~=5.19.0
 jupyter~=1.0.0
 
 
-Bevor du anfängst, schriebe mir alles mit deinen Worten erneut auf und frage mich, ob das richtig ist, damit ich es bestätigen kann, dass du es richtig verstanden hast.
-
--fehlermeldung vom backtest lösen:
--Wenn ich auf "Daten Laden" klicke, soll er im hintergrund die Daten der .csv laden. Das soll funktionieren, auch wenn ich die reiter wechselt.
--Ebenfalls soll dann ein "laden"-erkennbar sein innerhalb von  "aktueller Status" im hauptmenü
--ich will ein update der statuszeile nach dem anklicken von Laden der daten und nachdem es geladen ist. Ebenfalls für das ML-Modell.
--Nach dem wechseln der Hauptreiter soll immer auf Seitenanfang (ganz oben) gestartet werden
--MOdelle sollen gelöscht werden können(mit alllen dazugehörigen verbindungen zum model) (also backtest infos, scaler usw). Denk nach was alles dazu gehört.
--Ich habe ein modell trainiert und dabei wurden einmal das modell mit .h5 und deren scaler erstellt, diese sind in "C:\Users\Buro\pythonProject\nq-trading-project\output\modelsf" zu finden,
- doch wenn ich unter "ML-Modell-Verwaltung" -> "Modell auswählen" gehe, ist das modell nicht aufzufinden. Ist das modell kaputt, oder einfach nur nicht auffindbar?
--Ebenfalls sollen "irgendwelche" Infos während des Backtestens angezeigt werden. Es soll human erkennlich sein, also wie lange es gerade lädt und vielleicht sogar was geladen wird.
- Das überlasse ich dir. Zudem sollen die Buttons solange es nicht fertiggestellt ist beim backtesten/ Datenladen und Modellladen ausgegraut werden.
- -Die backtest ergebnisse sollen erst verschwinden, wenn ein neuer backtest durchgeführt wird.
