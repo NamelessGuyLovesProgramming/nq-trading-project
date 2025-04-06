@@ -72,6 +72,12 @@ if 'backtest_status' not in st.session_state:
     st.session_state.backtest_status = 'not_started'
 if 'previous_action' not in st.session_state:
     st.session_state.previous_action = None
+if 'ml_model' not in st.session_state:
+    st.session_state.ml_model = None
+if 'ml_scaler' not in st.session_state:
+    st.session_state.ml_scaler = None
+if 'ml_metadata' not in st.session_state:
+    st.session_state.ml_metadata = None
 
 # Seitenleiste für Hauptaktionen (ohne Datenparameter)
 with st.sidebar:
@@ -730,20 +736,22 @@ def run_backtest():
 
         def background_run_backtest():
             try:
+                print("Starte Backtest...")
                 # Progress-Bar und Status im Hauptfenster
                 progress_placeholder = st.empty()
                 status_placeholder = st.empty()
 
                 progress_placeholder.progress(0.1)
                 status_placeholder.text("Strategie wird initialisiert...")
+                print(f"Strategie  initialisiert")
 
-                # Erstelle die ausgewählte Strategie
                 if strategy_type == "ml":
                     # Lade oder verwende das Modell
                     progress_placeholder.progress(0.2)
                     status_placeholder.text("ML-Modell wird vorbereitet...")
 
-                    if not model_loaded:
+                    # Prüfen, ob ml_model im session_state existiert und initialisiert ist
+                    if not hasattr(st.session_state, 'ml_model') or st.session_state.ml_model is None:
                         st.session_state.backtest_status = 'error'
                         st.session_state.backtest_error = "Kein ML-Modell geladen. Bitte laden Sie zuerst ein Modell."
                         return
@@ -837,6 +845,7 @@ def run_backtest():
                 # Backtest durchführen
                 progress_placeholder.progress(0.4)
                 status_placeholder.text("Backtest wird ausgeführt...")
+                print("Starte Backtest-Engine...")
                 backtest_engine = BacktestEngine(
                     st.session_state.data,
                     strategy,
@@ -844,6 +853,7 @@ def run_backtest():
                     commission=commission
                 )
                 results = backtest_engine.run()
+                print("Führe Backtest aus...")
 
                 # Speichere Engine und Ergebnisse für spätere Verwendung
                 st.session_state.backtest_engine = backtest_engine
@@ -874,6 +884,7 @@ def run_backtest():
                 st.session_state.backtest_metrics = additional_metrics
 
                 progress_placeholder.progress(1.0)
+                print(f"Backtest abgeschlossen. Trades: {results['trades']}")
                 status_placeholder.text("Backtest abgeschlossen!")
 
             except Exception as e:
@@ -1398,6 +1409,7 @@ def main():
         run_backtest()
     elif action == "Visualisieren":
         visualize_data()
+
 
 # App ausführen
 if __name__ == "__main__":
