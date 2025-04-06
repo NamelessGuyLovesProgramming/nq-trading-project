@@ -168,6 +168,7 @@ with st.sidebar:
 
 # Daten laden
 def load_data():
+    import os
     st.header("Daten laden")
 
     if st.session_state.data_loading_status == 'loading':

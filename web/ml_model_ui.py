@@ -91,6 +91,7 @@ def find_orphaned_models(models_dir='output/models'):
 
     return created_metadata
 
+
 def scan_for_orphaned_models(models_dir='output/models'):
     """
     Scannt nach Modellen ohne Metadatendateien und erstellt einfache Metadaten für sie.
@@ -134,27 +135,19 @@ def scan_for_orphaned_models(models_dir='output/models'):
             # Extrahiere Anzahl der Features
             num_features = input_shape[1] if len(input_shape) > 1 else 1
 
-            # Erstelle Standardfeatures basierend auf Anzahl
-            standard_features = ['Open', 'High', 'Low', 'Close', 'Volume']
-            technical_indicators = [
-                'SMA_20', 'EMA_9', 'RSI', 'MACD', 'MACD_Signal', 'MACD_Hist',
-                'BB_Upper', 'BB_Lower', 'BB_Middle', 'ATR', 'STOCH_k', 'STOCH_d',
-                'OBV', 'Bullish_FVG', 'Bearish_FVG', 'FVG_Size'
-            ]
+            # Initialisiere DataProcessor für Feature-Namensvorschläge
+            from src.data.processor import DataProcessor
+            processor = DataProcessor()
 
-            if num_features <= 5:
-                features = standard_features[:num_features]
-            else:
-                # Verwende so viele technische Indikatoren wie nötig
-                features = standard_features.copy()
-                needed_indicators = num_features - len(standard_features)
-                for i in range(min(needed_indicators, len(technical_indicators))):
-                    features.append(technical_indicators[i])
+            # Versuche, vorhandene Spaltennamen aus den Daten zu extrahieren, wenn verfügbar
+            available_columns = None
+            if 'data' in globals() and data is not None and hasattr(data, 'columns'):
+                available_columns = [col for col in data.columns if col not in ['Signal', 'Prediction']]
+                print(f"Verfügbare Features in Daten gefunden: {available_columns}")
 
-                # Falls immer noch mehr Features benötigt werden, erstelle generische Namen
-                if num_features > len(standard_features) + len(technical_indicators):
-                    for i in range(len(standard_features) + len(technical_indicators), num_features):
-                        features.append(f"Feature_{i + 1}")
+            # Hole Vorschläge für Feature-Namen
+            features = processor.get_suggested_feature_names(num_features, available_columns)
+            print(f"Gewählte Features für Modell: {features}")
 
             # Generiere Metadaten
             metadata = {

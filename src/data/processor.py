@@ -591,3 +591,146 @@ class DataProcessor:
         print(f"Speichereinsparung: {(1 - mem_after / mem_before) * 100:.2f}%")
 
         return result
+
+
+def get_all_known_features(self):
+    """
+    Gibt eine umfassende Liste aller bekannten Features und Indikatoren zurück.
+    Diese Methode dient als zentrale Registry für Feature-Namen.
+
+    Returns:
+    --------
+    dict
+        Dictionary mit Feature-Kategorien und zugehörigen Features
+    """
+    return {
+        "Basisdaten": ["Open", "High", "Low", "Close", "Volume"],
+        "Trend": ["SMA_9", "SMA_20", "SMA_50", "SMA_200", "EMA_9", "EMA_20", "EMA_50", "EMA_200"],
+        "Momentum": ["RSI", "MACD", "MACD_Signal", "MACD_Hist", "STOCH_k", "STOCH_d", "Momentum", "ROC"],
+        "Volatilität": ["BB_Upper", "BB_Lower", "BB_Middle", "ATR", "StdDev", "ChandelierExit"],
+        "Volumen": ["OBV", "Volume_MA", "VWAP", "MFI", "ChaikinOscillator", "ADOSC"],
+        "Marktstruktur": [
+            "Bullish_FVG", "Bearish_FVG", "FVG_Size",
+            "Inv_Bullish_FVG", "Inv_Bearish_FVG", "Inv_FVG_Size",
+            "Bullish_Sweep", "Bearish_Sweep", "Sweep_Magnitude"
+        ],
+        "Oszillatoren": ["WilliamsR", "CCI", "Aroon", "ADX", "DI+", "DI-", "SuperTrend"],
+        "Andere": ["Pivot", "Support", "Resistance", "Fibonacci", "Ichimoku"]
+    }
+
+
+def identify_feature_type(self, column_name):
+    """
+    Erkennt den Typ eines Features basierend auf seinem Namen.
+
+    Parameters:
+    -----------
+    column_name : str
+        Name der Spalte/des Features
+
+    Returns:
+    --------
+    str
+        Kategorie des Features oder "Unbekannt"
+    """
+    # Prüfe auf exakte Übereinstimmungen
+    all_features = self.get_all_known_features()
+    for category, features in all_features.items():
+        if column_name in features:
+            return category
+
+    # Prüfe auf Präfixe
+    prefixes = {
+        "SMA_": "Trend",
+        "EMA_": "Trend",
+        "RSI": "Momentum",
+        "MACD": "Momentum",
+        "BB_": "Volatilität",
+        "ATR": "Volatilität",
+        "STOCH": "Momentum",
+        "OBV": "Volumen",
+        "Volume": "Volumen",
+        "FVG": "Marktstruktur",
+        "Sweep": "Marktstruktur"
+    }
+
+    for prefix, category in prefixes.items():
+        if column_name.startswith(prefix):
+            return category
+
+    return "Unbekannt"
+
+
+def get_suggested_feature_names(self, num_features, available_columns=None):
+    """
+    Generiert sinnvolle Feature-Namen basierend auf der Anzahl und verfügbaren Spalten.
+
+    Parameters:
+    -----------
+    num_features : int
+        Anzahl benötigter Features
+    available_columns : list, optional
+        Liste verfügbarer Spaltennamen
+
+    Returns:
+    --------
+    list
+        Liste mit empfohlenen Feature-Namen
+    """
+    # Standard OHLCV-Features
+    base_features = ["Open", "High", "Low", "Close", "Volume"]
+
+    # Wenn keine Spalten verfügbar sind, verwende vordefinierte Listen
+    if not available_columns:
+        # Flache Liste aller bekannten Features erstellen
+        all_features = []
+        for features in self.get_all_known_features().values():
+            all_features.extend(features)
+
+        # Zuerst Basis-Features, dann weitere
+        feature_names = base_features.copy()
+        other_features = [f for f in all_features if f not in base_features]
+        feature_names.extend(other_features)
+
+        # Schneide auf die geforderte Anzahl zu
+        return feature_names[:num_features]
+
+    # Wenn Spalten verfügbar sind
+    suggested_features = []
+
+    # Zuerst OHLCV-Features, wenn verfügbar
+    for feature in base_features:
+        if feature in available_columns and len(suggested_features) < num_features:
+            suggested_features.append(feature)
+
+    # Dann andere verfügbare Spalten nach Kategorien
+    categories_priority = ["Trend", "Momentum", "Volatilität", "Volumen", "Marktstruktur", "Oszillatoren", "Andere",
+                           "Unbekannt"]
+
+    # Erstelle ein Dictionary mit allen Spalten nach Kategorie
+    categorized_columns = {}
+    for column in available_columns:
+        if column in suggested_features:
+            continue  # Überspringe bereits hinzugefügte Features
+
+        category = self.identify_feature_type(column)
+        if category not in categorized_columns:
+            categorized_columns[category] = []
+        categorized_columns[category].append(column)
+
+    # Füge Features nach Priorität der Kategorien hinzu
+    for category in categories_priority:
+        if category in categorized_columns:
+            for column in categorized_columns[category]:
+                if len(suggested_features) < num_features:
+                    suggested_features.append(column)
+                else:
+                    break
+
+    # Falls immer noch nicht genug Features, verwende beschreibendere Namen
+    if len(suggested_features) < num_features:
+        remaining = num_features - len(suggested_features)
+        for i in range(remaining):
+            suggested_features.append(f"Technical_Indicator_{i + 1}")
+
+    return suggested_features[:num_features]

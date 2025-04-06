@@ -125,47 +125,29 @@ class ModelManager:
 
         # Vorhersagen und Metriken berechnen
         predictions = model.predict(X_test)
-        # Verwende diesen speichereffizienten Ansatz:
-        squared_errors = []
-        batch_size = 1000  # In kleineren Batches verarbeiten
-        for i in range(0, len(predictions), batch_size):
-            end_idx = min(i + batch_size, len(predictions))
-            batch_pred = predictions[i:end_idx]
-            batch_true = y_test[i:end_idx]
-            batch_se = (batch_pred - batch_true) ** 2
-            squared_errors.extend(batch_se)
+
+        # Stelle sicher, dass beide Arrays die gleiche Form haben
+        predictions = predictions.flatten()
+        y_test_flat = y_test.flatten()
+
+        # Stelle sicher, dass beide Arrays die gleiche Länge haben
+        min_len = min(len(predictions), len(y_test_flat))
+        predictions = predictions[:min_len]
+        y_test_flat = y_test_flat[:min_len]
+
+        # Berechne MSE direkt
+        squared_errors = (predictions - y_test_flat) ** 2
         mse = np.mean(squared_errors)
-
-        # Ähnlich für MAE und MAPE:
-        absolute_errors = []
-        for i in range(0, len(predictions), batch_size):
-            end_idx = min(i + batch_size, len(predictions))
-            batch_pred = predictions[i:end_idx]
-            batch_true = y_test[i:end_idx]
-            batch_ae = np.abs(batch_pred - batch_true)
-            absolute_errors.extend(batch_ae)
-        mae = np.mean(absolute_errors)
-
-        # MAPE-Berechnung mit Prüfungen für Nullen
-        percentage_errors = []
-        for i in range(0, len(predictions), batch_size):
-            end_idx = min(i + batch_size, len(predictions))
-            batch_pred = predictions[i:end_idx]
-            batch_true = y_test[i:end_idx]
-            # Vermeidung der Division durch Null
-            non_zero_mask = batch_true != 0
-            if np.any(non_zero_mask):
-                batch_pe = np.abs(
-                    (batch_true[non_zero_mask] - batch_pred[non_zero_mask]) / batch_true[non_zero_mask]) * 100
-                percentage_errors.extend(batch_pe)
-        mape = np.mean(percentage_errors) if percentage_errors else float('nan')
         rmse = np.sqrt(mse)
-        mae = np.mean(np.abs(predictions - y_test))
+
+        # Berechne MAE direkt
+        mae = np.mean(np.abs(predictions - y_test_flat))
 
         # Berechne MAPE mit Vermeidung von Division durch Null
-        non_zero_mask = y_test != 0
+        non_zero_mask = y_test_flat != 0
         if np.any(non_zero_mask):
-            mape = np.mean(np.abs((y_test[non_zero_mask] - predictions[non_zero_mask]) / y_test[non_zero_mask])) * 100
+            mape = np.mean(np.abs((y_test_flat[non_zero_mask] - predictions[non_zero_mask]) /
+                                  y_test_flat[non_zero_mask])) * 100
         else:
             mape = float('nan')
 
