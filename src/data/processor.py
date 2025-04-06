@@ -226,9 +226,9 @@ class DataProcessor:
             lookback: Anzahl der Perioden für die Berechnung lokaler Hochs/Tiefs
         """
         # Initialisiere Sweep-Spalten
-        df['Bullish_Sweep'] = 0
-        df['Bearish_Sweep'] = 0
-        df['Sweep_Magnitude'] = 0
+        df['Bullish_Sweep'] = 0.0
+        df['Bearish_Sweep'] = 0.0
+        df['Sweep_Magnitude'] = 0.0
 
         # Berechne lokale Hochs und Tiefs
         for i in range(lookback, len(df) - 1):
@@ -305,13 +305,19 @@ class DataProcessor:
             features = essential_features + technical_features
         else:
             # Verwende die vom Benutzer ausgewählten Features
-            features = selected_features
+            features = selected_features.copy()  # Erstelle Kopie, um Original nicht zu ändern
 
         # Prüfe, ob alle Features vorhanden sind
         available_features = [f for f in features if f in df_ml.columns]
         if len(available_features) < len(features):
             missing = set(features) - set(available_features)
             print(f"Warnung: Folgende Features fehlen: {missing}")
+
+            # WICHTIG: Hier speichern wir die fehlenden Features, damit wir später wissen,
+            # welche Features nicht verwendet wurden
+            self.missing_features = missing
+
+            # Nur verfügbare Features verwenden
             features = available_features
 
         print(f"Verwendete Features: {features}")
@@ -327,6 +333,9 @@ class DataProcessor:
         if scale and feature_data.shape[0] > 0:
             # Skaliere Features
             feature_data = self.scaler.fit_transform(feature_data)
+
+            # Wichtig: Speichere die Feature-Namen, die der Scaler verwendet hat
+            self.scaler_feature_names = features
 
             # Skaliere auch Zieldaten separat für bessere Ergebnisse
             target_scaler = MinMaxScaler()
@@ -366,8 +375,6 @@ class DataProcessor:
                 "WARNUNG: Testdaten weichen stark von Trainingsdaten ab! Dies könnte zu schlechter Generalisierung führen.")
 
         return X_train, y_train, X_test, y_test, self.scaler
-
-    # Füge diese neue Funktion hinzu, um Trainingsdaten für höhere Robustheit zu erweitern
 
     def augment_time_series(self, X, y, noise_level=0.005, shift_max=2):
         """

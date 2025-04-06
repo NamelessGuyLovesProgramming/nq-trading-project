@@ -138,13 +138,23 @@ def scan_for_orphaned_models(models_dir='output/models'):
             standard_features = ['Open', 'High', 'Low', 'Close', 'Volume']
             technical_indicators = [
                 'SMA_20', 'EMA_9', 'RSI', 'MACD', 'MACD_Signal', 'MACD_Hist',
-                'BB_Upper', 'BB_Lower', 'BB_Middle', 'ATR', 'STOCH_k', 'STOCH_d'
+                'BB_Upper', 'BB_Lower', 'BB_Middle', 'ATR', 'STOCH_k', 'STOCH_d',
+                'OBV', 'Bullish_FVG', 'Bearish_FVG', 'FVG_Size'
             ]
 
             if num_features <= 5:
                 features = standard_features[:num_features]
             else:
-                features = standard_features + technical_indicators[:num_features - 5]
+                # Verwende so viele technische Indikatoren wie nötig
+                features = standard_features.copy()
+                needed_indicators = num_features - len(standard_features)
+                for i in range(min(needed_indicators, len(technical_indicators))):
+                    features.append(technical_indicators[i])
+
+                # Falls immer noch mehr Features benötigt werden, erstelle generische Namen
+                if num_features > len(standard_features) + len(technical_indicators):
+                    for i in range(len(standard_features) + len(technical_indicators), num_features):
+                        features.append(f"Feature_{i + 1}")
 
             # Generiere Metadaten
             metadata = {
@@ -451,17 +461,14 @@ def ml_model_ui(data=None):
             with col1:
                 model_load_button_disabled = st.session_state.model_loading_status == 'loading'
                 if st.button("Modell laden", disabled=model_load_button_disabled):
-                    # Setze Status auf "Laden"
-                    st.session_state.model_loading_status = 'loading'
-                    st.session_state.selected_model_to_load = selected_model
-
-                    # Starte Ladevorgang in einem Thread
-                    import threading
-                    import time
-
-                    def background_load_model():
+                    with st.spinner("Modell wird geladen..."):
                         try:
+                            # Setze Status auf "Laden"
+                            st.session_state.model_loading_status = 'loading'
+
+                            # Lade Modell synchron
                             model, scaler, metadata = model_manager.load_model(selected_model)
+
                             if model is not None:
                                 # Speichere Modell in Session-State für spätere Verwendung
                                 st.session_state.ml_model = model
@@ -471,28 +478,19 @@ def ml_model_ui(data=None):
 
                                 # Setze ausgewähltes Modell für Details
                                 st.session_state.selected_model_for_details = selected_model
+
+                                st.success(f"Modell '{selected_model}' erfolgreich geladen!")
+                                st.rerun()
                             else:
                                 st.session_state.model_loading_status = 'error'
                                 st.session_state.model_loading_error = f"Modell '{selected_model}' konnte nicht geladen werden."
+                                st.error(f"Modell '{selected_model}' konnte nicht geladen werden.")
                         except Exception as e:
                             import traceback
                             st.session_state.model_loading_status = 'error'
                             st.session_state.model_loading_error = str(e)
+                            st.error(f"Fehler beim Laden des Modells: {str(e)}")
                             traceback.print_exc()
-
-                    # Thread starten
-                    thread = threading.Thread(target=background_load_model)
-                    thread.daemon = True
-                    thread.start()
-
-                    # Hinweis anzeigen
-                    st.info(
-                        "Modell wird im Hintergrund geladen. Sie können zu anderen Tabs wechseln, der Ladevorgang läuft weiter.")
-
-                    # Trigger für Neuladung der Seite nach kurzer Verzögerung
-                    time.sleep(0.1)  # Kurze Verzögerung für UI-Update
-                    st.rerun()
-
             with col2:
                 if st.button("Modell löschen"):
                     # Sicherheitsabfrage
@@ -612,12 +610,13 @@ def ml_model_ui(data=None):
                 features = model_info.get("features", [])
 
                 if features:
-                    # Display all features directly
-                    st.write(", ".join(features))
+                    # Zeige alle Features als Liste an
+                    feature_text = ", ".join(features)
+                    st.write(feature_text)
 
-                    # For the additional categorized view
+                    # Für die zusätzliche kategorisierte Ansicht
                     st.write("#### Features nach Kategorien")
-                    # Group features by categories for better overview
+                    # Gruppiere Features nach Kategorien für bessere Übersicht
                     feature_by_category = {}
                     unknown_features = []
 
@@ -634,13 +633,13 @@ def ml_model_ui(data=None):
                         if not found:
                             unknown_features.append(feature)
 
-                    # Show features by categories
+                    # Zeige Features nach Kategorien
                     for category, cat_features in feature_by_category.items():
                         if cat_features:
                             with st.expander(f"{category} ({len(cat_features)} Features)", expanded=True):
                                 st.write(", ".join(cat_features))
 
-                    # Show uncategorized features
+                    # Zeige unkategorisierte Features
                     if unknown_features:
                         with st.expander(f"Sonstige Features ({len(unknown_features)})", expanded=True):
                             st.write(", ".join(unknown_features))

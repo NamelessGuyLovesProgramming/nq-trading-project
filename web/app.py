@@ -98,14 +98,29 @@ with st.sidebar:
         """
         st.info(data_info)
     elif 'data' in st.session_state and st.session_state.data is not None:
-        data_info = f"""
-        **Daten geladen:** ✅
-        - Symbol: {st.session_state.get('symbol', 'Unbekannt')}
-        - Zeitraum: {st.session_state.get('period', 'Unbekannt')}
-        - Intervall: {st.session_state.get('interval', 'Unbekannt')}
-        - Datenpunkte: {len(st.session_state.data):,}
-        """
-        st.info(data_info)
+        # Zeige detaillierte Infos, wenn verfügbar
+        if 'data_info' in st.session_state:
+            info = st.session_state.data_info
+            start_date = info.get('date_range', {}).get('start', 'Unbekannt').split('T')[0]
+            end_date = info.get('date_range', {}).get('end', 'Unbekannt').split('T')[0]
+            data_info = f"""
+            **Daten geladen:** ✅
+            - Symbol: {st.session_state.get('symbol', 'Unbekannt')}
+            - Zeitraum: {st.session_state.get('period', 'Unbekannt')}
+            - Intervall: {st.session_state.get('interval', 'Unbekannt')}
+            - Datenpunkte: {info.get('rows', len(st.session_state.data)):,}
+            - Zeitbereich: {start_date} bis {end_date}
+            """
+        else:
+            # Fallback wenn data_info nicht verfügbar ist
+            data_info = f"""
+            **Daten geladen:** ✅
+            - Symbol: {st.session_state.get('symbol', 'Unbekannt')}
+            - Zeitraum: {st.session_state.get('period', 'Unbekannt')}
+            - Intervall: {st.session_state.get('interval', 'Unbekannt')}
+            - Datenpunkte: {len(st.session_state.data):,}
+            """
+        st.success(data_info)
     elif st.session_state.data_loading_status == 'error':
         error_msg = st.session_state.get('data_loading_error', 'Unbekannter Fehler')
         st.error(f"**Daten:** ❌ Fehler beim Laden: {error_msg}")
@@ -155,6 +170,19 @@ with st.sidebar:
 def load_data():
     st.header("Daten laden")
 
+    if st.session_state.data_loading_status == 'loading':
+        # Auto-Refresh alle 3 Sekunden, nur während des Ladens
+        refresh_html = """
+        <meta http-equiv="refresh" content="3">
+        <div style="padding: 10px; border-radius: 5px; background-color: #E8F4F8; margin-bottom: 10px;">
+            <p style="color: #0078D7; margin: 0;">
+                <strong>Daten werden geladen...</strong><br>
+                Diese Seite wird automatisch aktualisiert, sobald der Ladevorgang abgeschlossen ist.
+            </p>
+        </div>
+        """
+        st.markdown(refresh_html, unsafe_allow_html=True)
+
     # Verzeichnis-Pfade
     default_path = "data/raw"
     windows_path = r"C:\Users\Buro\pythonProject\nq-trading-project\data\raw"
@@ -198,14 +226,16 @@ def load_data():
     if filtered_files:
         custom_file = st.selectbox(
             "Benutzerdefinierte Datei auswählen",
-            options=filtered_files,
+            options=[""] + filtered_files,
+            index=0,
             key="filtered_file_select"
         )
     elif not filter_text and csv_filenames:
         # Wenn kein Filter gesetzt ist, zeige alle verfügbaren Dateien
         custom_file = st.selectbox(
             "Benutzerdefinierte Datei auswählen",
-            options=csv_filenames,
+            options=[""] + csv_filenames,
+            index=0,
             key="all_files_select"
         )
 
@@ -253,54 +283,104 @@ def load_data():
     # Füge einen Knopf hinzu, um den Ladevorgang zu starten
     load_button_disabled = st.session_state.data_loading_status == 'loading'
     if st.button("Daten laden starten", key="load_data_button", disabled=load_button_disabled):
-        # Setze den Status auf "Laden"
-        st.session_state.data_loading_status = 'loading'
+        with st.spinner("Daten werden geladen..."):
+            try:
+                # Setze den Status auf "Laden"
+                st.session_state.data_loading_status = 'loading'
 
-        # Speichere wichtige Parameter als separate Variablen
-        selected_source_type = None
-        selected_file = None
-        yahoo_symbol = None
-        yahoo_period = None
-        yahoo_interval = None
+                # Parameter in Session speichern (für spätere Verwendung)
+                if use_yahoo:
+                    selected_source_type = 'yahoo'
+                    st.session_state.symbol = symbol
+                    st.session_state.period = period
+                    st.session_state.interval = interval
+                elif special_option == "Alle nq-1m* Dateien kombinieren":
+                    selected_source_type = 'combined'
+                elif custom_file:
+                    selected_source_type = 'custom_file'
+                    st.session_state.custom_file = custom_file
+                    print(f"Ausgewählte Datei (beim Button-Klick): '{custom_file}'")
+                else:
+                    st.error("Bitte wählen Sie eine Datenoption aus.")
+                    st.session_state.data_loading_status = 'not_started'
+                    return
 
-        if use_yahoo:
-            selected_source_type = 'yahoo'
-            yahoo_symbol = symbol
-            yahoo_period = period
-            yahoo_interval = interval
-        elif special_option == "Alle nq-1m* Dateien kombinieren":
-            selected_source_type = 'combined'
-        elif custom_file:
-            selected_source_type = 'custom_file'
-            selected_file = custom_file
-            print(f"Ausgewählte Datei (beim Button-Klick): '{custom_file}'")
+                # Standardwerte für fehlende Parameter
+                if not hasattr(st.session_state, 'symbol') or not st.session_state.symbol:
+                    st.session_state.symbol = DEFAULT_SYMBOL
+                if not hasattr(st.session_state, 'period') or not st.session_state.period:
+                    st.session_state.period = DEFAULT_PERIOD
+                if not hasattr(st.session_state, 'interval') or not st.session_state.interval:
+                    st.session_state.interval = DEFAULT_INTERVAL
 
-        # Starte Ladeprozess in einem separaten Thread
-        import threading
-        import time
+                # Erstelle DataFetcher-Instanz
+                fetcher = DataFetcher(symbol=st.session_state.symbol)
 
-        # Hintergrund-Thread mit Parametern starten
-        thread = threading.Thread(
-            target=background_load_data,
-            kwargs={
-                'source_type': selected_source_type,
-                'custom_file': selected_file,
-                'yahoo_symbol': yahoo_symbol,
-                'yahoo_period': yahoo_period,
-                'yahoo_interval': yahoo_interval
-            }
-        )
-        thread.daemon = True
-        thread.start()
+                # Debug-Ausgabe
+                print(f"Lade Daten mit data_source_type: {selected_source_type}")
 
-        # Hinweis anzeigen
-        st.info(
-            "Daten werden im Hintergrund geladen. Sie können zu anderen Tabs wechseln, der Ladevorgang läuft weiter."
-        )
+                if selected_source_type == 'yahoo':
+                    print(
+                        f"Lade Yahoo Finance Daten: {st.session_state.symbol}, {st.session_state.period}, {st.session_state.interval}")
+                    data = fetcher.fetch_data(
+                        period=st.session_state.period,
+                        interval=st.session_state.interval,
+                        force_download=True
+                    )
+                elif selected_source_type == 'combined':
+                    print("Kombiniere alle nq-1m* Dateien für umfassenden Backtest...")
+                    data = fetcher.load_custom_file("nq-1m*.csv")
+                elif selected_source_type == 'custom_file':
+                    if not st.session_state.custom_file:
+                        st.error("Kein Dateiname angegeben. Bitte wählen Sie eine Datei aus.")
+                        st.session_state.data_loading_status = 'error'
+                        st.session_state.data_loading_error = "Kein Dateiname angegeben. Bitte wählen Sie eine Datei aus."
+                        return
 
-        # Trigger für Neuladung der Seite nach kurzer Verzögerung
-        time.sleep(0.1)  # Kurze Verzögerung für UI-Update
-        st.rerun()
+                    print(f"Lade benutzerdefinierte Datei: {st.session_state.custom_file}")
+                    # Direkter Aufruf von load_custom_file für benutzerdefinierte Dateien
+                    data = fetcher.load_custom_file(st.session_state.custom_file)
+
+                # Fehlerprüfung
+                if data is None or data.empty:
+                    st.error("Keine Daten konnten geladen werden. Überprüfen Sie die Parameter.")
+                    st.session_state.data_loading_status = 'error'
+                    st.session_state.data_loading_error = "Keine Daten konnten geladen werden. Überprüfen Sie die Parameter."
+                    return
+
+                # Füge technische Indikatoren hinzu
+                processor = DataProcessor()
+                data_with_indicators = processor.add_technical_indicators(data)
+
+                # Speichere das Ergebnis in der Session
+                st.session_state.data = data_with_indicators
+
+                # Symbol, Periode und Intervall speichern
+                if selected_source_type == 'yahoo':
+                    pass  # Bereits gespeichert
+                elif selected_source_type == 'combined':
+                    st.session_state.symbol = "Multiple"
+                    st.session_state.period = "Custom"
+                    st.session_state.interval = "Mixed"
+                elif selected_source_type == 'custom_file':
+                    import os
+                    st.session_state.symbol = os.path.splitext(st.session_state.custom_file)[
+                        0]  # Verwende Dateinamen ohne Erweiterung
+                    st.session_state.period = "Custom"
+                    st.session_state.interval = "Custom"
+
+                # Aktualisiere Status
+                st.session_state.data_loading_status = 'completed'
+                st.success(f"Daten erfolgreich geladen: {len(data_with_indicators)} Datenpunkte")
+                st.rerun()
+
+            except Exception as e:
+                import traceback
+                # Fehler protokollieren
+                st.session_state.data_loading_status = 'error'
+                st.session_state.data_loading_error = str(e)
+                st.error(f"Fehler beim Laden der Daten: {str(e)}")
+                traceback.print_exc()
     else:
         # Zeige einen Hinweis, wenn noch keine Daten geladen wurden
         if st.session_state.data is None:
@@ -1162,6 +1242,9 @@ def background_load_data(source_type, custom_file=None, yahoo_symbol=None, yahoo
             if not custom_file:
                 st.session_state.data_loading_status = 'error'
                 st.session_state.data_loading_error = "Kein Dateiname angegeben. Bitte wählen Sie eine Datei aus."
+                # Signal für Fehler schreiben
+                with open("signal_file.txt", "w") as f:
+                    f.write("error|Kein Dateiname angegeben")
                 return
 
             print(f"Lade benutzerdefinierte Datei: {custom_file}")
@@ -1173,6 +1256,9 @@ def background_load_data(source_type, custom_file=None, yahoo_symbol=None, yahoo
         if data is None or data.empty:
             st.session_state.data_loading_status = 'error'
             st.session_state.data_loading_error = "Keine Daten konnten geladen werden. Überprüfen Sie die Parameter."
+            # Signal für Fehler schreiben
+            with open("signal_file.txt", "w") as f:
+                f.write("error|Keine Daten konnten geladen werden")
             return
 
         # Füge technische Indikatoren hinzu
@@ -1195,8 +1281,38 @@ def background_load_data(source_type, custom_file=None, yahoo_symbol=None, yahoo
             st.session_state.period = "Custom"
             st.session_state.interval = "Custom"
 
-        # Aktualisiere Status
-        st.session_state.data_loading_status = 'completed'
+        # Speichere zusätzliche Infos für die Anzeige
+        data_info = {
+            'rows': len(data_with_indicators),
+            'columns': list(data_with_indicators.columns),
+            'date_range': {
+                'start': data_with_indicators.index[0].isoformat() if hasattr(data_with_indicators.index[0],
+                                                                              'isoformat') else str(
+                    data_with_indicators.index[0]),
+                'end': data_with_indicators.index[-1].isoformat() if hasattr(data_with_indicators.index[-1],
+                                                                             'isoformat') else str(
+                    data_with_indicators.index[-1])
+            }
+        }
+
+        # In eine Datei schreiben, die signalisiert, dass der Ladevorgang abgeschlossen ist
+        import json
+        signal_data = {
+            'status': 'completed',
+            'symbol': st.session_state.symbol,
+            'period': st.session_state.period,
+            'interval': st.session_state.interval,
+            'rows': len(data_with_indicators),
+            'date_range': {
+                'start': str(data_with_indicators.index[0]),
+                'end': str(data_with_indicators.index[-1])
+            }
+        }
+        with open("signal_file.txt", "w") as f:
+            f.write(f"completed|{json.dumps(signal_data)}")
+
+        print("Daten vollständig geladen und im Session-State gespeichert.")
+        print("Keine Exceptions während des Ladens.")
 
     except Exception as e:
         import traceback
@@ -1204,6 +1320,50 @@ def background_load_data(source_type, custom_file=None, yahoo_symbol=None, yahoo
         st.session_state.data_loading_status = 'error'
         st.session_state.data_loading_error = str(e)
         traceback.print_exc()
+
+        # Signal für Fehler schreiben
+        with open("signal_file.txt", "w") as f:
+            f.write(f"error|{str(e)}")
+
+        print(f"Exception während des Ladens: {str(e)}")
+
+    print("Thread-Ausführung abgeschlossen.")
+
+
+def check_signal_file():
+    """Überprüft, ob die Signaldatei existiert und liest ihren Inhalt"""
+    try:
+        if os.path.exists("signal_file.txt"):
+            with open("signal_file.txt", "r") as f:
+                content = f.read().strip()
+
+            # Datei nach dem Lesen löschen
+            os.remove("signal_file.txt")
+
+            if content.startswith("completed|"):
+                # Erfolgreiches Laden
+                import json
+                data_str = content.split("|", 1)[1]
+                signal_data = json.loads(data_str)
+
+                # Session-State aktualisieren
+                st.session_state.data_loading_status = 'completed'
+                st.session_state.symbol = signal_data.get('symbol', 'Unbekannt')
+                st.session_state.period = signal_data.get('period', 'Unbekannt')
+                st.session_state.interval = signal_data.get('interval', 'Unbekannt')
+
+                return True
+            elif content.startswith("error|"):
+                # Fehler beim Laden
+                error_msg = content.split("|", 1)[1]
+                st.session_state.data_loading_status = 'error'
+                st.session_state.data_loading_error = error_msg
+                return True
+    except Exception as e:
+        print(f"Fehler beim Lesen der Signaldatei: {e}")
+
+    return False
+
 
 def main():
     # Wenn ein Tabwechsel erkannt wird, setze Scrollposition zurück
@@ -1219,6 +1379,13 @@ def main():
         st.markdown(js, unsafe_allow_html=True)
     else:
         st.session_state.previous_action = action
+
+    # Überprüfe die Signaldatei
+    if st.session_state.data_loading_status == 'loading':
+        if check_signal_file():
+            # Signal gefunden, aktualisiere die Seite
+            st.rerun()
+
     # Aktionen basierend auf ausgewähltem Tab
     if action == "Daten laden":
         load_data()
@@ -1230,7 +1397,6 @@ def main():
         run_backtest()
     elif action == "Visualisieren":
         visualize_data()
-
 
 # App ausführen
 if __name__ == "__main__":
